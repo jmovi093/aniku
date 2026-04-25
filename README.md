@@ -107,6 +107,28 @@ If you do not need to modify native Android code, keeping this folder ignored is
 - Use your own Firebase project for development or releases.
 - Keep Firestore and Storage rules strict before publishing.
 
+## GitHub Releases and APK
+
+`push` and `pull request` do not create a GitHub Release by themselves.
+An APK is generated for Releases using the workflow at `.github/workflows/release-apk.yml`.
+
+Before creating a Release, add these repository secrets in GitHub:
+
+- `EXPO_PUBLIC_FIREBASE_API_KEY`
+- `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `EXPO_PUBLIC_FIREBASE_PROJECT_ID`
+- `EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+- `EXPO_PUBLIC_FIREBASE_APP_ID`
+- `EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID` (optional)
+
+How to publish an APK in GitHub Releases:
+
+1. Push your changes to `main`.
+2. In GitHub, go to Releases and create a new tag/release.
+3. Publish the release.
+4. The workflow builds Android APK and attaches it to that release automatically.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
