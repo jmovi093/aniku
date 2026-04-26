@@ -476,7 +476,7 @@ const VideoPlayer = ({
                     Ep. {currentEpisodeNumber}
                   </Text>
                 </View>
-                
+
                 <CastButton style={{ width: 26, height: 26, tintColor: 'white', marginRight: 16 }} />
               </View>
 
