@@ -28,9 +28,18 @@ class AuthService {
 
   // 🔐 Iniciar sesión con email y contraseña
   static async signInWithEmail(email, password) {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      logger.error("❌ Firebase not configured, cannot sign in");
+      return {
+        success: false,
+        error: "Firebase no está configurado. Revisa FIREBASE_SETUP.md",
+        code: "firebase/not-configured",
+      };
+    }
     try {
       const userCredential = await signInWithEmailAndPassword(
-        getFirebaseAuth(),
+        auth,
         email,
         password,
       );
@@ -52,9 +61,18 @@ class AuthService {
 
   // 📝 Registrar nuevo usuario
   static async signUpWithEmail(email, password, displayName = null) {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      logger.error("❌ Firebase not configured, cannot sign up");
+      return {
+        success: false,
+        error: "Firebase no está configurado. Revisa FIREBASE_SETUP.md",
+        code: "firebase/not-configured",
+      };
+    }
     try {
       const userCredential = await createUserWithEmailAndPassword(
-        getFirebaseAuth(),
+        auth,
         email,
         password,
       );
@@ -84,8 +102,16 @@ class AuthService {
 
   // 🚪 Cerrar sesión
   static async signOut() {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      logger.error("❌ Firebase not configured, cannot sign out");
+      return {
+        success: false,
+        error: "Firebase no está configurado. Revisa FIREBASE_SETUP.md",
+      };
+    }
     try {
-      await signOut(getFirebaseAuth());
+      await signOut(auth);
       logger.debug("✅ Sesión cerrada");
       return {
         success: true,
@@ -102,8 +128,16 @@ class AuthService {
 
   // 🔄 Restablecer contraseña
   static async resetPassword(email) {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      logger.error("❌ Firebase not configured, cannot reset password");
+      return {
+        success: false,
+        error: "Firebase no está configurado. Revisa FIREBASE_SETUP.md",
+      };
+    }
     try {
-      await sendPasswordResetEmail(getFirebaseAuth(), email);
+      await sendPasswordResetEmail(auth, email);
       logger.debug("✅ Email de restablecimiento enviado a:", email);
       return {
         success: true,
@@ -120,17 +154,25 @@ class AuthService {
 
   // 👁️ Observar cambios en el estado de autenticación
   static onAuthStateChange(callback) {
-    return onAuthStateChanged(getFirebaseAuth(), callback);
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      logger.debug("⚠️ Firebase not configured, onAuthStateChange returning no-op");
+      // Return a no-op unsubscribe function
+      return () => {};
+    }
+    return onAuthStateChanged(auth, callback);
   }
 
   // 🔍 Verificar si el usuario está autenticado
   static isAuthenticated() {
-    return getFirebaseAuth()?.currentUser !== null;
+    const auth = getFirebaseAuth();
+    return auth?.currentUser !== null && auth !== null;
   }
 
   // 📧 Obtener email del usuario actual
   static getCurrentUserEmail() {
-    return getFirebaseAuth()?.currentUser?.email || null;
+    const auth = getFirebaseAuth();
+    return auth?.currentUser?.email || null;
   }
 
   // 👤 Obtener información del usuario actual
