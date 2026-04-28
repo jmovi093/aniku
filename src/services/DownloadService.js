@@ -13,8 +13,13 @@ try {
   createDownloadTask = bgDownloader.createDownloadTask;
   getExistingDownloadTasks = bgDownloader.getExistingDownloadTasks;
 } catch {
-  RNFS = { DocumentDirectoryPath: "", exists: () => false, mkdir: () => {}, unlink: () => {} };
-  createDownloadTask = () => {};
+  RNFS = {
+    DocumentDirectoryPath: "",
+    exists: () => Promise.resolve(false),
+    mkdir: () => Promise.resolve(),
+    unlink: () => Promise.resolve(),
+  };
+  createDownloadTask = () => ({ begin: () => {}, progress: () => {}, done: () => {}, error: () => {} });
   getExistingDownloadTasks = () => Promise.resolve([]);
 }
 

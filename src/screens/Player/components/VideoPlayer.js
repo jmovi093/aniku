@@ -85,14 +85,14 @@ const VideoPlayer = ({
 
   const client = useRemoteMediaClient();
   const castState = useCastState();
-  const isCasting = castState === 'connected';
+  const isCasting = castState === "connected";
   const castStreamPosition = useStreamPosition(1);
 
   // Refs que deben estar siempre actualizados sin ser deps de efectos
-  const castReadyRef = useRef(false);       // true cuando el Cast ya tiene media cargada
-  const lastCastPositionRef = useRef(0);    // última posición conocida del stream del TV
-  const isPlayingRef = useRef(isPlaying);   // valor fresco de isPlaying para closures async
-  const castProxyTokenRef = useRef(null);   // token del proxy activo
+  const castReadyRef = useRef(false); // true cuando el Cast ya tiene media cargada
+  const lastCastPositionRef = useRef(0); // última posición conocida del stream del TV
+  const isPlayingRef = useRef(isPlaying); // valor fresco de isPlaying para closures async
+  const castProxyTokenRef = useRef(null); // token del proxy activo
   isPlayingRef.current = isPlaying;
 
   // Parar servidor proxy al desmontar el componente
@@ -118,14 +118,17 @@ const VideoPlayer = ({
 
   // Cargar media al conectar; retomar local al desconectar
   useEffect(() => {
-    if (castState !== 'connected') {
+    if (castState !== "connected") {
       if (castReadyRef.current) {
         if (castProxyTokenRef.current) {
           unregisterProxyUrl(castProxyTokenRef.current);
           castProxyTokenRef.current = null;
         }
         stopProxyServer();
-        castLogger.info("Cast disconnected, resuming local at", lastCastPositionRef.current);
+        castLogger.info(
+          "Cast disconnected, resuming local at",
+          lastCastPositionRef.current,
+        );
         seekTo(lastCastPositionRef.current);
         castReadyRef.current = false;
       }
@@ -133,7 +136,10 @@ const VideoPlayer = ({
     }
 
     if (!client || !currentLink?.url) {
-      castLogger.warn("loadMedia skipped — client or URL missing", { client: !!client, url: currentLink?.url });
+      castLogger.warn("loadMedia skipped — client or URL missing", {
+        client: !!client,
+        url: currentLink?.url,
+      });
       return;
     }
 
@@ -146,8 +152,11 @@ const VideoPlayer = ({
     startProxyServer();
     const token = `v${Date.now()}`;
     const proxyUrl = registerProxyUrl(token, currentLink.url, {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-      'Referer': currentLink.requiresReferer ? 'https://allanime.day/' : 'https://allmanga.to',
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+      Referer: currentLink.requiresReferer
+        ? "https://allanime.day/"
+        : "https://allmanga.to",
     });
     castProxyTokenRef.current = token;
 
@@ -156,9 +165,10 @@ const VideoPlayer = ({
       return;
     }
 
-    const contentType = currentLink.url.includes('.m3u8') || currentLink.url.includes('m3u8')
-      ? 'application/x-mpegURL'
-      : 'video/mp4';
+    const contentType =
+      currentLink.url.includes(".m3u8") || currentLink.url.includes("m3u8")
+        ? "application/x-mpegURL"
+        : "video/mp4";
 
     castLogger.info("Sending media to Cast via local proxy", {
       proxyUrl,
@@ -167,27 +177,28 @@ const VideoPlayer = ({
       startTime: currentTime,
     });
 
-    client.loadMedia({
-      mediaInfo: {
-        contentUrl: proxyUrl,
-        contentType,
-        streamType: 'BUFFERED',
-        metadata: {
-          type: 'movie',
-          title: animeName,
-          subtitle: `Ep. ${currentEpisodeNumber}`,
+    client
+      .loadMedia({
+        mediaInfo: {
+          contentUrl: proxyUrl,
+          contentType,
+          streamType: "BUFFERED",
+          metadata: {
+            type: "movie",
+            title: animeName,
+            subtitle: `Ep. ${currentEpisodeNumber}`,
+          },
         },
-      },
-      startTime: currentTime,
-      autoplay: isPlayingRef.current,
-    })
+        startTime: currentTime,
+        autoplay: isPlayingRef.current,
+      })
       .then(() => {
         castReadyRef.current = true;
         castLogger.info("Media loaded on Cast device successfully");
       })
       .catch((e) => {
         castLogger.error("Cast loadMedia failed", e);
-        console.error('[Cast] loadMedia failed:', e);
+        console.error("[Cast] loadMedia failed:", e);
       });
   }, [client, currentLink, castState, animeName, currentEpisodeNumber]);
 
@@ -196,29 +207,39 @@ const VideoPlayer = ({
     if (!client || !castReadyRef.current) return;
     if (isPlaying) {
       castLogger.debug("Syncing play to Cast");
-      client.play().catch(e => castLogger.error('Cast play failed', e));
+      client.play().catch((e) => castLogger.error("Cast play failed", e));
     } else {
       castLogger.debug("Syncing pause to Cast");
-      client.pause().catch(e => castLogger.error('Cast pause failed', e));
+      client.pause().catch((e) => castLogger.error("Cast pause failed", e));
     }
   }, [isPlaying, client]);
 
-  const castAwareSeekBy = useCallback((seconds) => {
-    if (isCasting && client) {
-      const newPos = Math.max(0, lastCastPositionRef.current + seconds);
-      castLogger.debug("Cast seekBy", { seconds, newPos });
-      client.seek({ position: newPos }).catch(e => castLogger.error('Cast seekBy failed', e));
-    }
-    seekBy(seconds);
-  }, [isCasting, client, seekBy]);
+  const castAwareSeekBy = useCallback(
+    (seconds) => {
+      if (isCasting && client) {
+        const newPos = Math.max(0, lastCastPositionRef.current + seconds);
+        castLogger.debug("Cast seekBy", { seconds, newPos });
+        client
+          .seek({ position: newPos })
+          .catch((e) => castLogger.error("Cast seekBy failed", e));
+      }
+      seekBy(seconds);
+    },
+    [isCasting, client, seekBy],
+  );
 
-  const castAwareSeekTo = useCallback((time) => {
-    if (isCasting && client) {
-      castLogger.debug("Cast seekTo", time);
-      client.seek({ position: time }).catch(e => castLogger.error('Cast seekTo failed', e));
-    }
-    seekTo(time);
-  }, [isCasting, client, seekTo]);
+  const castAwareSeekTo = useCallback(
+    (time) => {
+      if (isCasting && client) {
+        castLogger.debug("Cast seekTo", time);
+        client
+          .seek({ position: time })
+          .catch((e) => castLogger.error("Cast seekTo failed", e));
+      }
+      seekTo(time);
+    },
+    [isCasting, client, seekTo],
+  );
 
   // Left seek session
   const lastTapLeft = useRef(0);
@@ -373,8 +394,10 @@ const VideoPlayer = ({
     showControls();
   };
 
-  const effectiveCurrentTime = isCasting && castStreamPosition != null ? castStreamPosition : currentTime;
-  const progress = duration > 0 ? Math.min(effectiveCurrentTime / duration, 1) : 0;
+  const effectiveCurrentTime =
+    isCasting && castStreamPosition != null ? castStreamPosition : currentTime;
+  const progress =
+    duration > 0 ? Math.min(effectiveCurrentTime / duration, 1) : 0;
 
   const source = {
     uri: currentLink.url,
@@ -443,7 +466,9 @@ const VideoPlayer = ({
           {isCasting && (
             <View style={styles.bufferingOverlay} pointerEvents="none">
               <MaterialIcons name="cast-connected" size={48} color="#fff" />
-              <Text style={{ color: '#fff', marginTop: 8, fontSize: 14 }}>Reproduciendo en TV</Text>
+              <Text style={{ color: "#fff", marginTop: 8, fontSize: 14 }}>
+                Reproduciendo en TV
+              </Text>
             </View>
           )}
 
@@ -486,7 +511,7 @@ const VideoPlayer = ({
                       : Math.max(12, insets.top + 4),
                     flexDirection: "row",
                     justifyContent: "space-between",
-                    alignItems: "center"
+                    alignItems: "center",
                   },
                 ]}
                 pointerEvents="box-none"
@@ -500,7 +525,14 @@ const VideoPlayer = ({
                   </Text>
                 </View>
 
-                <CastButton style={{ width: 26, height: 26, tintColor: 'white', marginRight: 16 }} />
+                <CastButton
+                  style={{
+                    width: 26,
+                    height: 26,
+                    tintColor: "white",
+                    marginRight: 16,
+                  }}
+                />
               </View>
 
               {/* Centro: play/pause + buffering */}
