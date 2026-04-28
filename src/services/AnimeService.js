@@ -465,7 +465,7 @@ class AnimeService {
         );
 
         const response = await fetch(url, {
-          headers: API_CONFIG.getHeaders(),
+          headers: API_CONFIG.getGetHeaders(),
         });
 
         logger.debug("📥 getEpisodeInfos response status:", response.status);
@@ -558,10 +558,12 @@ class AnimeService {
       );
 
       logger.debug("📥 getEpisodeUrl response status:", response.status);
-      logger.debug(
-        "📥 getEpisodeUrl response data (primeros 200 chars):",
-        JSON.stringify(response.data).substring(0, 200),
-      );
+
+      const errors = response.data?.errors;
+      if (errors?.some((e) => e.message === "NEED_CAPTCHA")) {
+        logger.warn("⚠️ AllAnime requiere captcha — posible rate limit o IP bloqueada");
+        throw new Error("La API requiere verificación. Intentá de nuevo en unos segundos.");
+      }
 
       const result = await this.parseEpisodeProviders(response.data);
 
@@ -729,7 +731,7 @@ class AnimeService {
       const response = await axios.get(
         `https://${API_CONFIG.ALLANIME_BASE}${providerUrl}`,
         {
-          headers: API_CONFIG.getHeaders(),
+          headers: API_CONFIG.getGetHeaders(),
           timeout: 10000,
         },
       );

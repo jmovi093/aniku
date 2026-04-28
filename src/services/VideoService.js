@@ -52,7 +52,7 @@ class VideoService {
       }, 8000);
 
       const response = await axios.get(fullUrl, {
-        headers: API_CONFIG.getHeaders(),
+        headers: API_CONFIG.getGetHeaders(),
         signal: controller.signal,
         timeout: 8000,
       });
@@ -171,10 +171,7 @@ class VideoService {
       const timeoutId = setTimeout(() => controller.abort(), 6000);
 
       const response = await axios.get(jsonUrl, {
-        headers: {
-          "User-Agent": API_CONFIG.USER_AGENT,
-          Referer: `https://${API_CONFIG.ALLANIME_BASE}/`,
-        },
+        headers: API_CONFIG.getGetHeaders(),
         signal: controller.signal,
         timeout: 6000,
       });

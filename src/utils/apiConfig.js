@@ -15,18 +15,25 @@ export const API_CONFIG = {
   USER_AGENT:
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
 
-  // Headers para requestsr
   getHeaders() {
-    const headers = {
+    return {
       "User-Agent": this.USER_AGENT,
       Referer: this.REFERER,
+      Origin: this.REFERER,
+      Accept: "application/json, text/plain, */*",
+      "Accept-Language": "en-US,en;q=0.9",
       "Content-Type": "application/json",
     };
-    logger.debug(
-      "🔧 API_CONFIG.getHeaders() called, returning:",
-      JSON.stringify(headers, null, 2),
-    );
-    return headers;
+  },
+
+  getGetHeaders() {
+    return {
+      "User-Agent": this.USER_AGENT,
+      Referer: this.REFERER,
+      Origin: this.REFERER,
+      Accept: "application/json, text/plain, */*",
+      "Accept-Language": "en-US,en;q=0.9",
+    };
   },
 };
 
