@@ -96,6 +96,9 @@ typings/
 # CocoaPods
 /ios/Pods/
 
+# Claude Code
+.claude/
+
 # VSCode
 .vscode/
 
