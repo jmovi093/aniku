@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node scripts/validate-patches.js",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",

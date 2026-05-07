@@ -434,19 +434,26 @@ index b6e1a34..359d36f 100644
  
  export default codegenNativeComponent<NativeProps>('RNSScreenStack', {});
 diff --git a/node_modules/react-native-screens/src/fabric/SearchBarNativeComponent.ts b/node_modules/react-native-screens/src/fabric/SearchBarNativeComponent.ts
-index df774b9..60418c3 100644
+index df774b9..3f62e69 100644
 --- a/node_modules/react-native-screens/src/fabric/SearchBarNativeComponent.ts
 +++ b/node_modules/react-native-screens/src/fabric/SearchBarNativeComponent.ts
-@@ -2,7 +2,7 @@
+@@ -1,12 +1,13 @@
+ 'use client';
  
- import { codegenNativeCommands, codegenNativeComponent } from 'react-native';
+-import { codegenNativeCommands, codegenNativeComponent } from 'react-native';
++import { codegenNativeCommands } from 'react-native';
++import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
  import type {
 -  CodegenTypes as CT,
-+import type { DirectEventHandler, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
    ViewProps,
    ColorValue,
    HostComponent,
-@@ -37,18 +37,18 @@ type AutoCapitalizeType =
+ } from 'react-native';
++import type { DirectEventHandler, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
+ 
+ // eslint-disable-next-line @typescript-eslint/ban-types
+ export type SearchBarEvent = Readonly<{}>;
+@@ -37,18 +38,18 @@ type AutoCapitalizeType =
  type OptionalBoolean = 'undefined' | 'false' | 'true';
  
  export interface NativeProps extends ViewProps {
@@ -476,7 +483,7 @@ index df774b9..60418c3 100644
    cancelButtonText?: string;
    // TODO: implement these on iOS
    barTintColor?: ColorValue;
-@@ -56,15 +56,15 @@ export interface NativeProps extends ViewProps {
+@@ -56,15 +57,15 @@ export interface NativeProps extends ViewProps {
    textColor?: ColorValue;
  
    // Android only
@@ -497,10 +504,10 @@ index df774b9..60418c3 100644
  
  type ComponentType = HostComponent<NativeProps>;
 diff --git a/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts b/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts
-index 25e6a31..7f70a95 100644
+index 25e6a31..2231468 100644
 --- a/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts
 +++ b/node_modules/react-native-screens/src/fabric/gamma/SplitViewHostNativeComponent.ts
-@@ -1,11 +1,11 @@
+@@ -1,11 +1,12 @@
  'use client';
  
  import type {
@@ -508,12 +515,14 @@ index 25e6a31..7f70a95 100644
    ViewProps,
    HostComponent,
  } from 'react-native';
- import { codegenNativeCommands, codegenNativeComponent } from 'react-native';
+-import { codegenNativeCommands, codegenNativeComponent } from 'react-native';
++import { codegenNativeCommands } from 'react-native';
++import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
 +import type { DirectEventHandler, Float, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
  
  // eslint-disable-next-line @typescript-eslint/ban-types
  type GenericEmptyEvent = Readonly<{}>;
-@@ -50,57 +50,57 @@ type SplitViewTopColumnForCollapsing =
+@@ -50,57 +51,57 @@ type SplitViewTopColumnForCollapsing =
    | 'secondary';
  
  interface ColumnMetrics {
@@ -597,7 +606,7 @@ index 25e6a31..7f70a95 100644
  
  type ComponentType = HostComponent<NativeProps>;
 diff --git a/node_modules/react-native-screens/src/fabric/gamma/SplitViewScreenNativeComponent.ts b/node_modules/react-native-screens/src/fabric/gamma/SplitViewScreenNativeComponent.ts
-index 0fe92a7..3f2b464 100644
+index 0fe92a7..f751c11 100644
 --- a/node_modules/react-native-screens/src/fabric/gamma/SplitViewScreenNativeComponent.ts
 +++ b/node_modules/react-native-screens/src/fabric/gamma/SplitViewScreenNativeComponent.ts
 @@ -1,7 +1,8 @@
@@ -606,8 +615,8 @@ index 0fe92a7..3f2b464 100644
 -import type { CodegenTypes as CT, ViewProps } from 'react-native';
 -import { codegenNativeComponent } from 'react-native';
 +import type { ViewProps } from 'react-native';
-+import type { DirectEventHandler, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
 +import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
++import type { DirectEventHandler, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
  
  // eslint-disable-next-line @typescript-eslint/ban-types
  type GenericEmptyEvent = Readonly<{}>;
@@ -631,7 +640,7 @@ index 0fe92a7..3f2b464 100644
  
  export default codegenNativeComponent<NativeProps>('RNSSplitViewScreen', {
 diff --git a/node_modules/react-native-screens/src/fabric/gamma/stack/StackScreenNativeComponent.ts b/node_modules/react-native-screens/src/fabric/gamma/stack/StackScreenNativeComponent.ts
-index 64e87f3..51d765e 100644
+index 64e87f3..3b808b4 100644
 --- a/node_modules/react-native-screens/src/fabric/gamma/stack/StackScreenNativeComponent.ts
 +++ b/node_modules/react-native-screens/src/fabric/gamma/stack/StackScreenNativeComponent.ts
 @@ -1,7 +1,8 @@
@@ -640,8 +649,8 @@ index 64e87f3..51d765e 100644
 -import type { CodegenTypes as CT, ViewProps } from 'react-native';
 -import { codegenNativeComponent } from 'react-native';
 +import type { ViewProps } from 'react-native';
-+import type { DirectEventHandler, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
 +import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
++import type { DirectEventHandler, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
  
  // eslint-disable-next-line @typescript-eslint/ban-types
  type GenericEmptyEvent = Readonly<{}>;
@@ -814,7 +823,7 @@ index 3864c41..a5e6ecf 100644
  
  export default codegenNativeComponent<NativeProps>('RNSTabsHost', {
 diff --git a/node_modules/react-native-screens/src/fabric/tabs/TabsScreenNativeComponent.ts b/node_modules/react-native-screens/src/fabric/tabs/TabsScreenNativeComponent.ts
-index f6ce662..f1abb5a 100644
+index f6ce662..4affc4e 100644
 --- a/node_modules/react-native-screens/src/fabric/tabs/TabsScreenNativeComponent.ts
 +++ b/node_modules/react-native-screens/src/fabric/tabs/TabsScreenNativeComponent.ts
 @@ -1,8 +1,7 @@
@@ -831,7 +840,7 @@ index f6ce662..f1abb5a 100644
  } from 'react-native';
  
  import { UnsafeMixed } from './codegenUtils';
-+import type { DirectEventHandler, Float, Int32, UnsafeMixed, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
++import type { DirectEventHandler, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';
  
  // iOS-specific: SFSymbol, image as a template usage
  export type IconType = 'image' | 'template' | 'sfSymbol' | 'xcasset';
