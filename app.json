@@ -38,7 +38,8 @@
           "receiverAppId": "CC1AD845"
         }
       ],
-      "./plugins/withCastDowngrade"
+      "./plugins/withCastDowngrade",
+      "./plugins/withFixMainApplication"
     ]
   }
 }
