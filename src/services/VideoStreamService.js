@@ -34,6 +34,7 @@ class VideoStreamService {
         animeId,
         episodeNumber.toString(),
         translationType,
+        { silent },
       );
 
       logger.debug(

@@ -214,7 +214,9 @@ export function filterProviders(sourceUrls, providerMapping) {
       return false;
     }
 
-    if (!source.sourceUrl || !source.sourceUrl.includes("--")) {
+    const isEncoded = source.sourceUrl && source.sourceUrl.startsWith("--");
+    const isDirect = source.sourceUrl && source.sourceUrl.startsWith("http");
+    if (!isEncoded && !isDirect) {
       logger.debug(`🚫 PROVIDER IGNORADO (URL inválida): ${source.sourceName}`);
       return false;
     }
@@ -229,8 +231,12 @@ export function filterProviders(sourceUrls, providerMapping) {
   // Procesar decodificación en paralelo usando Promise.all
   const decodingPromises = validSources.map(async (source, index) => {
     try {
-      const encodedUrl = source.sourceUrl.replace("--", "");
-      const decodedUrl = decodeUrl(encodedUrl);
+      let decodedUrl;
+      if (source.sourceUrl.startsWith("--")) {
+        decodedUrl = decodeUrl(source.sourceUrl.slice(2));
+      } else {
+        decodedUrl = source.sourceUrl;
+      }
 
       if (decodedUrl) {
         const provider = {

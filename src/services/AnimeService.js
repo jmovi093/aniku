@@ -794,6 +794,7 @@ class AnimeService {
     showId,
     episodeString,
     translationType = "sub",
+    { silent = false } = {},
   ) {
     logger.debug(
       `🚀 INICIANDO PIPELINE OPTIMIZADO para episodio ${episodeString}`,
@@ -827,7 +828,8 @@ class AnimeService {
       return validLinks;
     } catch (error) {
       const elapsed = Date.now() - startTime;
-      logger.error(
+      const logFn = silent ? logger.debug : logger.error;
+      logFn(
         `❌ ERROR EN PIPELINE OPTIMIZADO después de ${elapsed}ms:`,
         error.message,
       );

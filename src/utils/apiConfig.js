@@ -100,7 +100,9 @@ export const PROVIDER_MAPPING = {
   Ok: "okru",
   Mp4: "mp4upload",
   Sw: "streamwish",
-  // "Ak" NO está mapeado = se ignora automáticamente
+  Ak: "hls",
+  Uni: "uni",
+  "Vn-Hls": "vidhide",
 };
 
 logger.debug("✅ API_CONFIG INICIALIZADO:");
