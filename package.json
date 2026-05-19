@@ -1,6 +1,6 @@
 {
   "name": "Aniku",
-  "version": "1.0.0",
+  "version": "1.0.17",
   "main": "index.js",
   "scripts": {
     "postinstall": "patch-package && node scripts/validate-patches.js",
