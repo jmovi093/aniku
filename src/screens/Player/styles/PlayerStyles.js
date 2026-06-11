@@ -84,8 +84,13 @@ export const playerStyles = StyleSheet.create({
   },
   playPauseBtn: {
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 40,
+    borderRadius: 999,
     padding: 8,
+  },
+  seekBtn: {
+    padding: 8,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    borderRadius: 999,
   },
   controlsBottom: {
     paddingHorizontal: 14,
@@ -105,6 +110,14 @@ export const playerStyles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.3)",
     borderRadius: 2,
     overflow: "hidden",
+  },
+  seekBarBuffer: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    height: "100%",
+    backgroundColor: "rgba(255,255,255,0.35)",
+    borderRadius: 2,
   },
   seekBarFill: {
     height: "100%",
@@ -244,5 +257,35 @@ export const playerStyles = StyleSheet.create({
     fontSize: typography.fontSizes.base,
     color: "#ffffff",
     fontWeight: typography.fontWeights.semibold,
+  },
+
+  // Indicador de volumen (swipe vertical)
+  volumeOverlay: {
+    position: "absolute",
+    right: 20,
+    top: "50%",
+    transform: [{ translateY: -50 }],
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 12,
+    padding: 12,
+    alignItems: "center",
+    zIndex: 50,
+    minWidth: 60,
+  },
+  volumeBar: {
+    width: 6,
+    height: 80,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    borderRadius: 3,
+    overflow: "hidden",
+    marginTop: 8,
+  },
+  volumeBarFill: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderRadius: 3,
   },
 });

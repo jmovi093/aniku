@@ -294,6 +294,12 @@ const PROVIDER_CACHE_TTL = 5 * 60 * 1000;
 const PROVIDER_CACHE_MAX = 30;
 // ────────────────────────────────────────────────────────────────────────────
 
+// Caché de links de video ya resueltos por episodio.
+// El pre-fetch los guarda aquí; handleNextEpisode los lee al instante.
+const _videoLinksCache = new Map();
+const VIDEO_LINKS_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const VIDEO_LINKS_CACHE_MAX = 15;
+
 class AnimeService {
   /**
    * Busca anime por nombre
@@ -796,6 +802,13 @@ class AnimeService {
     translationType = "sub",
     { silent = false } = {},
   ) {
+    const vlCacheKey = `${showId}|${episodeString}|${translationType}`;
+    const vlCached = _videoLinksCache.get(vlCacheKey);
+    if (vlCached && Date.now() - vlCached.ts < VIDEO_LINKS_CACHE_TTL) {
+      logger.debug(`📦 Cache hit: video links ep ${episodeString} (${vlCached.data.length} enlaces)`);
+      return vlCached.data;
+    }
+
     logger.debug(
       `🚀 INICIANDO PIPELINE OPTIMIZADO para episodio ${episodeString}`,
     );
@@ -824,6 +837,14 @@ class AnimeService {
       logger.debug(
         `🎯 PIPELINE COMPLETADO en ${elapsed}ms — ${validLinks.length} enlaces`,
       );
+
+      // Guardar links en caché para acceso instantáneo al presionar siguiente
+      if (validLinks.length > 0) {
+        if (_videoLinksCache.size >= VIDEO_LINKS_CACHE_MAX) {
+          _videoLinksCache.delete(_videoLinksCache.keys().next().value);
+        }
+        _videoLinksCache.set(vlCacheKey, { data: validLinks, ts: Date.now() });
+      }
 
       return validLinks;
     } catch (error) {

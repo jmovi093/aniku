@@ -1,6 +1,6 @@
 {
   "name": "Aniku",
-  "version": "1.0.17",
+  "version": "1.1.0",
   "main": "index.js",
   "scripts": {
     "postinstall": "patch-package && node scripts/validate-patches.js",
@@ -23,6 +23,7 @@
     "expo": "^54.0.33",
     "expo-build-properties": "~0.14.8",
     "expo-file-system": "~18.1.11",
+    "expo-navigation-bar": "~5.0.10",
     "expo-screen-orientation": "~8.1.7",
     "expo-status-bar": "~2.2.3",
     "firebase": "^12.2.1",

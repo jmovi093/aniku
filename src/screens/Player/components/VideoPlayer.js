@@ -1,22 +1,24 @@
-import { createLogger } from "../../../utils/logger";
 // screens/Player/components/VideoPlayer.js
 // Reproductor con controles personalizados
 
-const logger = createLogger("player");
-const castLogger = createLogger("cast");
-
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createLogger } from "../../../utils/logger";
 import {
   View,
   Text,
   TouchableOpacity,
   ActivityIndicator,
   useWindowDimensions,
+  PanResponder,
+  StyleSheet,
 } from "react-native";
 import Video from "react-native-video";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { playerStyles as styles } from "../styles/PlayerStyles";
+
+const logger = createLogger("player");
+const castLogger = createLogger("cast");
 
 let startProxyServer = () => Promise.resolve();
 let stopProxyServer = () => Promise.resolve();
@@ -60,6 +62,7 @@ const VideoPlayer = ({
   currentTime,
   duration,
   isBuffering,
+  playableDuration,
   onProgress,
   onLoad,
   onSeek,
@@ -82,6 +85,17 @@ const VideoPlayer = ({
   const [seekBarWidth, setSeekBarWidth] = useState(1);
   const [videoAspectRatio, setVideoAspectRatio] = useState(16 / 9);
   const hideTimerRef = useRef(null);
+
+  // Estado de volumen para swipe vertical
+  const [volume, setVolume] = useState(1.0);
+  const [showVolumeIndicator, setShowVolumeIndicator] = useState(false);
+  const volumeRef = useRef(1.0);
+  const volumeHideTimer = useRef(null);
+
+  const isSwipingLeft = useRef(false);
+  const isSwipingRight = useRef(false);
+  const swipeStartVolumeLeft = useRef(1.0);
+  const swipeStartVolumeRight = useRef(1.0);
 
   const client = useRemoteMediaClient();
   const castState = useCastState();
@@ -260,6 +274,7 @@ const VideoPlayer = ({
       clearTimeout(leftSingleTapTimer.current);
       clearTimeout(rightSessionTimer.current);
       clearTimeout(rightSingleTapTimer.current);
+      clearTimeout(volumeHideTimer.current);
     },
     [],
   );
@@ -384,6 +399,73 @@ const VideoPlayer = ({
     }, DOUBLE_TAP_WINDOW);
   };
 
+  // Refs que mantienen siempre la versión más reciente de las funciones de tap
+  const handleTapLeftRef = useRef(handleTapLeft);
+  handleTapLeftRef.current = handleTapLeft;
+
+  const handleTapRightRef = useRef(handleTapRight);
+  handleTapRightRef.current = handleTapRight;
+
+  const leftZonePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        isSwipingLeft.current = false;
+        swipeStartVolumeLeft.current = volumeRef.current;
+      },
+      onPanResponderMove: (_, g) => {
+        if (Math.abs(g.dy) > 20 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5) {
+          isSwipingLeft.current = true;
+          clearTimeout(volumeHideTimer.current);
+          setShowVolumeIndicator(true);
+          const newVol = Math.min(1, Math.max(0, swipeStartVolumeLeft.current - g.dy * 0.004));
+          volumeRef.current = newVol;
+          setVolume(newVol);
+        }
+      },
+      onPanResponderRelease: (_, g) => {
+        if (isSwipingLeft.current) {
+          const newVol = Math.min(1, Math.max(0, swipeStartVolumeLeft.current - g.dy * 0.004));
+          volumeRef.current = newVol;
+          setVolume(newVol);
+          volumeHideTimer.current = setTimeout(() => setShowVolumeIndicator(false), 1500);
+        } else {
+          handleTapLeftRef.current();
+        }
+      },
+    }),
+  ).current;
+
+  const rightZonePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        isSwipingRight.current = false;
+        swipeStartVolumeRight.current = volumeRef.current;
+      },
+      onPanResponderMove: (_, g) => {
+        if (Math.abs(g.dy) > 20 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5) {
+          isSwipingRight.current = true;
+          clearTimeout(volumeHideTimer.current);
+          setShowVolumeIndicator(true);
+          const newVol = Math.min(1, Math.max(0, swipeStartVolumeRight.current - g.dy * 0.004));
+          volumeRef.current = newVol;
+          setVolume(newVol);
+        }
+      },
+      onPanResponderRelease: (_, g) => {
+        if (isSwipingRight.current) {
+          const newVol = Math.min(1, Math.max(0, swipeStartVolumeRight.current - g.dy * 0.004));
+          volumeRef.current = newVol;
+          setVolume(newVol);
+          volumeHideTimer.current = setTimeout(() => setShowVolumeIndicator(false), 1500);
+        } else {
+          handleTapRightRef.current();
+        }
+      },
+    }),
+  ).current;
+
   const handleSeekBarPress = (event) => {
     const { locationX } = event.nativeEvent;
     if (seekBarWidth > 0 && duration > 0) {
@@ -398,6 +480,8 @@ const VideoPlayer = ({
     isCasting && castStreamPosition != null ? castStreamPosition : currentTime;
   const progress =
     duration > 0 ? Math.min(effectiveCurrentTime / duration, 1) : 0;
+  const bufferProgress =
+    duration > 0 ? Math.min((playableDuration || 0) / duration, 1) : 0;
 
   const source = {
     uri: currentLink.url,
@@ -454,12 +538,18 @@ const VideoPlayer = ({
             onEnd={onEnd}
             onError={(error) => logger.error("❌ ERROR EN VIDEO:", error)}
             progressUpdateInterval={1000}
-            volume={1.0}
+            volume={volume}
             muted={false}
             repeat={false}
             playWhenInactive={false}
             playInBackground={false}
             ignoreSilentSwitch="ignore"
+            bufferConfig={{
+              minBufferMs: 30000,
+              maxBufferMs: 120000,
+              bufferForPlaybackMs: 2500,
+              bufferForPlaybackAfterRebufferMs: 5000,
+            }}
           />
 
           {/* Cast overlay */}
@@ -474,27 +564,47 @@ const VideoPlayer = ({
 
           {/* Buffering — visible cuando no hay controles */}
           {isBuffering && !controlsVisible && (
-            <View style={styles.bufferingOverlay}>
+            <View style={styles.bufferingOverlay} pointerEvents="none">
               <ActivityIndicator size="large" color="#fff" />
+            </View>
+          )}
+
+          {/* Indicador de volumen */}
+          {showVolumeIndicator && (
+            <View style={styles.volumeOverlay} pointerEvents="none">
+              <MaterialIcons
+                name={
+                  volume === 0
+                    ? "volume-off"
+                    : volume < 0.5
+                      ? "volume-down"
+                      : "volume-up"
+                }
+                size={24}
+                color="#fff"
+              />
+              <View style={styles.volumeBar}>
+                <View
+                  style={[styles.volumeBarFill, { height: `${volume * 100}%` }]}
+                />
+              </View>
             </View>
           )}
 
           {/* Zonas táctiles: izquierda | centro | derecha */}
           <View style={styles.tapOverlay} pointerEvents="box-none">
-            <TouchableOpacity
+            <View
               style={styles.tapZone}
-              onPress={handleTapLeft}
-              activeOpacity={1}
+              {...leftZonePanResponder.panHandlers}
             />
             <TouchableOpacity
               style={styles.tapZoneCenter}
               onPress={handleCenterTap}
               activeOpacity={1}
             />
-            <TouchableOpacity
+            <View
               style={styles.tapZone}
-              onPress={handleTapRight}
-              activeOpacity={1}
+              {...rightZonePanResponder.panHandlers}
             />
           </View>
 
@@ -508,7 +618,8 @@ const VideoPlayer = ({
                   {
                     paddingTop: isFullscreen
                       ? 12
-                      : Math.max(12, insets.top + 4),
+                      : Math.max(6, insets.top + 2),
+                    paddingBottom: isFullscreen ? 8 : 4,
                     flexDirection: "row",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -535,24 +646,70 @@ const VideoPlayer = ({
                 />
               </View>
 
-              {/* Centro: play/pause + buffering */}
-              <View style={styles.controlsCenter} pointerEvents="box-none">
-                {isBuffering ? (
-                  <ActivityIndicator size="large" color="#fff" />
-                ) : (
-                  <TouchableOpacity
-                    onPress={togglePlayPause}
-                    style={styles.playPauseBtn}
+              {/* Centro: replay-10 + play/pause + forward-10 */}
+              {(() => {
+                const iconSize = isFullscreen ? 52 : 40;
+                const btnPadding = isFullscreen ? 8 : 6;
+                const seekIconSize = isFullscreen ? 32 : 26;
+                return (
+                  <View
+                    style={[
+                      styles.controlsCenter,
+                      { flexDirection: "row", alignItems: "center", gap: 20 },
+                    ]}
                     pointerEvents="auto"
                   >
-                    <MaterialIcons
-                      name={isPlaying ? "pause" : "play-arrow"}
-                      size={52}
-                      color="#fff"
-                    />
-                  </TouchableOpacity>
-                )}
-              </View>
+                    <>
+                        <TouchableOpacity
+                          onPress={() => castAwareSeekBy(-10)}
+                          style={styles.seekBtn}
+                          pointerEvents="auto"
+                        >
+                          <MaterialIcons
+                            name="replay-10"
+                            size={seekIconSize}
+                            color="#fff"
+                          />
+                        </TouchableOpacity>
+
+                        {isBuffering ? (
+                          <ActivityIndicator
+                            size="large"
+                            color="#fff"
+                            style={{ padding: btnPadding }}
+                          />
+                        ) : (
+                          <TouchableOpacity
+                            onPress={togglePlayPause}
+                            style={[
+                              styles.playPauseBtn,
+                              { padding: btnPadding, aspectRatio: 1 },
+                            ]}
+                            pointerEvents="auto"
+                          >
+                            <MaterialIcons
+                              name={isPlaying ? "pause" : "play-arrow"}
+                              size={iconSize}
+                              color="#fff"
+                            />
+                          </TouchableOpacity>
+                        )}
+
+                        <TouchableOpacity
+                          onPress={() => castAwareSeekBy(10)}
+                          style={styles.seekBtn}
+                          pointerEvents="auto"
+                        >
+                          <MaterialIcons
+                            name="forward-10"
+                            size={seekIconSize}
+                            color="#fff"
+                          />
+                        </TouchableOpacity>
+                      </>
+                  </View>
+                );
+              })()}
 
               {/* Bottom: seekbar + botones */}
               <View style={styles.controlsBottom} pointerEvents="box-none">
@@ -564,6 +721,14 @@ const VideoPlayer = ({
                   pointerEvents="auto"
                 >
                   <View style={styles.seekBarTrack}>
+                    {/* Barra de buffer — lo que está descargado */}
+                    <View
+                      style={[
+                        styles.seekBarBuffer,
+                        { width: `${bufferProgress * 100}%` },
+                      ]}
+                    />
+                    {/* Barra de progreso actual */}
                     <View
                       style={[
                         styles.seekBarFill,

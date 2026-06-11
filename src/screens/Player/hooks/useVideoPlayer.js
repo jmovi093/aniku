@@ -1,12 +1,14 @@
-const logger = createLogger("player");
-import { createLogger } from "../../../utils/logger";
 // screens/Player/hooks/useVideoPlayer.js
 // Hook para la gestión del reproductor de video
 
 import { useState, useRef, useEffect } from "react";
 import { StatusBar } from "react-native";
 import * as ScreenOrientation from "expo-screen-orientation";
+import * as NavigationBar from "expo-navigation-bar";
+import { createLogger } from "../../../utils/logger";
 import HybridHistoryService from "../../../services/HybridHistoryService";
+
+const logger = createLogger("player");
 
 export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
   // Estados del reproductor
@@ -18,6 +20,7 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
   const [lastSaveTime, setLastSaveTime] = useState(0);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [playableDuration, setPlayableDuration] = useState(0);
 
   // Referencias
   const videoRef = useRef(null);
@@ -46,6 +49,7 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
       ScreenOrientation.lockAsync(
         ScreenOrientation.OrientationLock.PORTRAIT_UP,
       ).catch(() => {});
+      NavigationBar.setVisibilityAsync('visible').catch(() => {}); // restaurar al salir del player
     };
   }, []);
 
@@ -60,6 +64,7 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
     setCurrentTime(0);
     setDuration(0);
     setIsBuffering(false);
+    setPlayableDuration(0);
     logger.debug(`🔄 Reset para episodio ${newEpisodeNum}: resume=0`);
   };
 
@@ -122,6 +127,9 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
   const onProgress = (data) => {
     currentTimeRef.current = data.currentTime;
     setCurrentTime(data.currentTime); // para la barra de progreso
+    if (data.playableDuration != null) {
+      setPlayableDuration(data.playableDuration);
+    }
     if (durationRef.current > 0) {
       saveProgress(data.currentTime, durationRef.current, false);
     }
@@ -162,6 +170,16 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
     setCurrentTime(clamped);
   };
 
+  // Re-aplica immersive cuando isFullscreen cambia (resuelve timing en primera entrada)
+  useEffect(() => {
+    if (isFullscreen) {
+      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => {});
+      NavigationBar.setVisibilityAsync('hidden').catch(() => {});
+    } else {
+      NavigationBar.setVisibilityAsync('visible').catch(() => {});
+    }
+  }, [isFullscreen]);
+
   // ▶️ Toggle play/pause
   const togglePlayPause = () => setIsPlaying((prev) => !prev);
 
@@ -173,12 +191,15 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
           ScreenOrientation.OrientationLock.PORTRAIT_UP,
         );
         StatusBar.setHidden(false);
+        await NavigationBar.setVisibilityAsync('visible');
         setIsFullscreen(false);
       } else {
         await ScreenOrientation.lockAsync(
           ScreenOrientation.OrientationLock.LANDSCAPE,
         );
         StatusBar.setHidden(true);
+        await NavigationBar.setBehaviorAsync('overlay-swipe');
+        await NavigationBar.setVisibilityAsync('hidden');
         setIsFullscreen(true);
       }
     } catch (e) {
@@ -205,6 +226,7 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
     isBuffering,
     hasInitialLoad,
     isFullscreen,
+    playableDuration,
     videoRef,
     setSelectedQuality,
     setHasInitialLoad,

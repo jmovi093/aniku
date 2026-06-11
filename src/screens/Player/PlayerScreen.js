@@ -22,6 +22,7 @@ const PlayerScreen = ({ route, navigation }) => {
     duration,
     isBuffering,
     isFullscreen,
+    playableDuration,
     videoRef,
     setSelectedQuality,
     setHasInitialLoad,
@@ -94,6 +95,7 @@ const PlayerScreen = ({ route, navigation }) => {
         currentTime={currentTime}
         duration={duration}
         isBuffering={isBuffering}
+        playableDuration={playableDuration}
         onProgress={onProgress}
         onLoad={onLoad}
         onSeek={onSeek}

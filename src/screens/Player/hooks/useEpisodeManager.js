@@ -5,7 +5,6 @@ import { createLogger } from "../../../utils/logger";
 
 import { useState, useEffect } from "react";
 import AnimeService from "../../../services/AnimeService";
-import VideoService from "../../../services/VideoService";
 import VideoStreamService from "../../../services/VideoStreamService";
 
 export const useEpisodeManager = (
@@ -37,74 +36,36 @@ export const useEpisodeManager = (
   ) => {
     const nextEpisodeNum = parseInt(currentEpisodeNumber) + 1;
 
-    logger.debug(`🎬 CARGANDO PRÓXIMO EPISODIO: ${nextEpisodeNum}`);
     setIsLoadingNextEpisode(true);
     setShowLoadingAlert(true);
     // No pausar — el video debe buffer/transicionar sin interrupción visible
 
     try {
-      // Obtener providers para el próximo episodio
-      const providers = await AnimeService.getEpisodeUrl(
+      logger.debug(`🎬 CARGANDO PRÓXIMO EPISODIO: ${nextEpisodeNum} (pipeline optimizado)`);
+
+      const videoLinks = await AnimeService.getOptimizedVideoLinks(
         route.params.animeId,
         nextEpisodeNum.toString(),
+        "sub",
       );
 
-      if (providers && providers.length > 0) {
-        let allVideoLinks = [];
-
-        // Procesar cada provider para obtener enlaces de video
-        for (const provider of providers) {
-          try {
-            const videoLinks = await VideoService.getVideoLinks(provider.url);
-            if (videoLinks.length > 0) {
-              allVideoLinks = allVideoLinks.concat(
-                videoLinks.map((link) => ({
-                  ...link,
-                  provider: provider.name,
-                })),
-              );
-              logger.debug(
-                `✅ Provider ${provider.name}: ${videoLinks.length} enlaces encontrados`,
-              );
-            }
-          } catch (error) {
-            logger.debug(`⚠️ Provider ${provider.name} falló (normal)`);
-          }
-        }
-
-        if (allVideoLinks.length > 0) {
-          // Actualizar el estado con el nuevo episodio
-          setCurrentEpisodeNumber(nextEpisodeNum);
-          setCurrentVideoLinks(allVideoLinks);
-          setSelectedQuality(0);
-          setCurrentTime(0);
-          setDuration(0);
-          setHasInitialLoad(false);
-          // Re-evaluar si el nuevo episodio tiene siguiente
-          setHasNextEpisode(
-            totalEpisodes ? nextEpisodeNum < totalEpisodes : false,
-          );
-
-          logger.debug(
-            `✅ PRÓXIMO EPISODIO ${nextEpisodeNum} CARGADO CON ${allVideoLinks.length} FUENTES`,
-          );
-
-          // Reproducir automáticamente después de un pequeño delay
-          setTimeout(() => {
-            setIsPlaying(true);
-          }, 500);
-        } else {
-          logger.debug(
-            "❌ No se encontraron enlaces válidos para el próximo episodio",
-          );
-          setHasNextEpisode(false);
-        }
+      if (videoLinks && videoLinks.length > 0) {
+        setCurrentEpisodeNumber(nextEpisodeNum);
+        setCurrentVideoLinks(videoLinks);
+        setSelectedQuality(0);
+        setCurrentTime(0);
+        setDuration(0);
+        setHasInitialLoad(false);
+        setHasNextEpisode(totalEpisodes ? nextEpisodeNum < totalEpisodes : false);
+        logger.debug(`✅ PRÓXIMO EPISODIO ${nextEpisodeNum} LISTO: ${videoLinks.length} enlaces`);
+        setTimeout(() => { setIsPlaying(true); }, 500);
       } else {
-        logger.debug("❌ No se encontraron providers para el próximo episodio");
+        logger.debug("❌ No se encontraron enlaces para el próximo episodio");
         setHasNextEpisode(false);
       }
     } catch (error) {
       logger.error("❌ Error cargando próximo episodio:", error);
+      setHasNextEpisode(false);
     } finally {
       setIsLoadingNextEpisode(false);
       setShowLoadingAlert(false);
