@@ -595,6 +595,8 @@ class AnimeService {
    * No espera a los providers lentos — navega en cuanto hay algo válido.
    */
   static async raceValidLinks(providers) {
+    const raceController = new AbortController();
+
     return new Promise((resolve, reject) => {
       let settled = false;
       let remaining = providers.length;
@@ -604,11 +606,12 @@ class AnimeService {
           logger.debug(
             `   [${index + 1}/${providers.length}] Procesando ${provider.name}...`,
           );
-          const links = await VideoService.getVideoLinks(provider.url);
+          const links = await VideoService.getVideoLinks(provider.url, raceController.signal);
           const validLinks = links.filter((l) => l.url && l.url.length > 10);
 
           if (!settled && validLinks.length > 0) {
             settled = true;
+            raceController.abort();
             logger.debug(
               `   🏆 Primer válido: ${provider.name} (${validLinks.length} enlaces)`,
             );
@@ -622,7 +625,7 @@ class AnimeService {
             );
           }
         } catch (_) {
-          // provider falló — los demás siguen corriendo
+          // provider falló o fue cancelado — los demás siguen corriendo
         } finally {
           remaining--;
           if (remaining === 0 && !settled) {
