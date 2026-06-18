@@ -14,7 +14,7 @@ class VideoService {
   /**
    * 🚀 OPTIMIZACIÓN CRÍTICA: getVideoLinks con timeouts y mejor error handling
    */
-  static async getVideoLinks(providerUrl) {
+  static async getVideoLinks(providerUrl, cancelSignal = null) {
     logger.debug(`📡 PROCESANDO PROVIDER: ${providerUrl.substring(0, 50)}...`);
 
     // Manejo especial para YouTube (inmediato)
@@ -50,6 +50,9 @@ class VideoService {
         );
         controller.abort();
       }, 8000);
+      if (cancelSignal) {
+        cancelSignal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
 
       const response = await axios.get(fullUrl, {
         headers: API_CONFIG.getGetHeaders(),
@@ -70,8 +73,15 @@ class VideoService {
         logger.debug(
           `🕐 CLOCK.JSON RAW (primeros 300 chars): ${responseStr.substring(0, 300)}`,
         );
-        const links = this.extractLinksFromJson(responseStr);
+        const links = this.extractLinksFromClockJson(response.data);
         logger.debug(`🕐 CLOCK.JSON: ${links.length} enlaces extraídos`);
+        return this.filterLinksForAndroid(links);
+      }
+
+      // ok.ru: extraer streams del data-options embebido en el HTML
+      if (fullUrl.includes("ok.ru/videoembed")) {
+        const links = this.extractLinksFromOkRu(response.data);
+        logger.debug(`🎬 OK.RU: ${links.length} enlaces extraídos`);
         return this.filterLinksForAndroid(links);
       }
 
@@ -195,6 +205,105 @@ class VideoService {
       logger.debug(`❌ Error procesando JSON: ${error.message}`);
       return [];
     }
+  }
+
+  /**
+   * Extrae streams del embed de ok.ru.
+   * ok.ru pone todos los streams en data-options como JSON escapado con entidades HTML.
+   * Las URLs incluyen srcIp del cliente que hizo el request, por lo que son accesibles
+   * desde el mismo device que las generó.
+   */
+  static extractLinksFromOkRu(html) {
+    const links = [];
+    try {
+      const raw = typeof html === "string" ? html : "";
+      const match = raw.match(/data-options="([^"]+)"/);
+      if (!match) return links;
+
+      const decoded = match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, "&")
+        .replace(/&#39;/g, "'");
+      const options = JSON.parse(decoded);
+      const metaStr = options?.flashvars?.metadata;
+      if (!metaStr) return links;
+
+      const meta = JSON.parse(metaStr);
+
+      // Preferir hlsManifestUrl — un solo m3u8 con todas las calidades
+      if (meta.hlsManifestUrl) {
+        links.push({
+          url: meta.hlsManifestUrl,
+          quality: "auto",
+          type: "m3u8",
+          source: "okru-hls",
+        });
+      }
+
+      // Fallback: streams individuales por calidad
+      const qualityOrder = { full: 6, hd: 5, sd: 4, low: 3, lowest: 2, mobile: 1 };
+      (meta.videos || [])
+        .sort((a, b) => (qualityOrder[b.name] || 0) - (qualityOrder[a.name] || 0))
+        .forEach((v) => {
+          if (!v.url) return;
+          links.push({
+            url: v.url,
+            quality: v.name,
+            type: "mp4",
+            source: "okru-mp4",
+          });
+        });
+    } catch (e) {
+      logger.debug(`❌ Error parseando ok.ru: ${e.message}`);
+    }
+    return links;
+  }
+
+  /**
+   * Extrae streams de la respuesta parseada de clock.json.
+   * Prioriza rawUrls.vids (URLs directas de CDN) sobre el campo link (sk.json que puede dar 404).
+   */
+  static extractLinksFromClockJson(data) {
+    const links = [];
+
+    try {
+      const entries = Array.isArray(data?.links) ? data.links : [];
+
+      for (const entry of entries) {
+        const vids = entry?.rawUrls?.vids;
+        if (Array.isArray(vids) && vids.length > 0) {
+          for (const vid of vids) {
+            if (!vid.url || !vid.height) continue;
+            const url = vid.url.replace(/\\u002F/g, "/").replace(/\\/g, "");
+            links.push({
+              url,
+              quality: `${vid.height}p`,
+              type: "mp4",
+              source: "clock-rawurls",
+              noReferer: true,
+            });
+          }
+          // Con rawUrls.vids encontrados, no necesitamos el campo link
+          continue;
+        }
+
+        // Fallback: usar el campo link si no hay rawUrls
+        const linkUrl = entry?.link;
+        if (linkUrl && !linkUrl.includes("sk.json")) {
+          const url = linkUrl.replace(/\\u002F/g, "/").replace(/\\/g, "");
+          links.push({
+            url,
+            quality: entry.resolutionStr || "auto",
+            type: this.getVideoType(url),
+            source: "clock-link",
+          });
+        }
+      }
+    } catch (e) {
+      logger.debug(`❌ Error parseando clock.json: ${e.message}`);
+    }
+
+    return links;
   }
 
   /**
