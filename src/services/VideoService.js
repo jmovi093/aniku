@@ -271,6 +271,23 @@ class VideoService {
 
       for (const entry of entries) {
         const vids = entry?.rawUrls?.vids;
+        // El CDN de Bilibili a veces sirve DASH con video y audio en streams
+        // separados (rawUrls.audios). El player no muxea pistas externas, así
+        // que usar estos vids directo deja el video sin sonido. Se descarta
+        // esta entrada para que la carrera caiga a un provider con audio
+        // muxeado (Ok, mp4upload, etc.) — mismo comportamiento que ani-cli,
+        // que tampoco consume esta fuente.
+        const hasSeparateAudio =
+          Array.isArray(entry?.rawUrls?.audios) &&
+          entry.rawUrls.audios.length > 0;
+
+        if (Array.isArray(vids) && vids.length > 0 && hasSeparateAudio) {
+          logger.debug(
+            "🔇 clock.json con audio/video DASH separados — se descarta (sin mux)",
+          );
+          continue;
+        }
+
         if (Array.isArray(vids) && vids.length > 0) {
           for (const vid of vids) {
             if (!vid.url || !vid.height) continue;

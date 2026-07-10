@@ -5,14 +5,23 @@ import { createLogger } from "../utils/logger";
 
 import axios from "axios";
 import CryptoJS from "crypto-js";
+import { gcm } from "@noble/ciphers/aes.js";
 import { API_CONFIG, PROVIDER_MAPPING } from "../utils/apiConfig.js";
 import { filterProviders } from "../utils/urlDecoder.js";
 import VideoService from "./VideoService.js";
 import CatalogService from "./CatalogService.js";
 
-const ALLANIME_KEY_HEX = CryptoJS.SHA256("Xot36i3lK3:v1").toString(
-  CryptoJS.enc.Hex,
-);
+// AllAnime cambió su esquema de cifrado el 2026-07-07/08. La clave ahora es
+// un valor fijo derivado por XOR en su build (ya no SHA256("Xot36i3lK3:v1")).
+const ALLANIME_KEY_HEX =
+  "22196fa6afca95309fdabe9a3534b87cd2454e50efeabfcbdbdfd3de678b3982";
+
+// Parámetros del token `aaReq` requerido desde esa misma fecha para las
+// queries de episodio (sin él, la API responde AA_CRYPTO_MISSING). Son
+// valores fijos observados en el build actual del sitio; si AllAnime los
+// rota de nuevo habrá que volver a extraerlos.
+const AAREQ_EPOCH = 4128;
+const AAREQ_BUILD_ID = "9";
 
 function safeJsonParse(value) {
   if (typeof value !== "string" || value.length === 0) {
@@ -132,6 +141,33 @@ function byteArrayToWordArray(bytes) {
   }
 
   return CryptoJS.lib.WordArray.create(words, bytes.length);
+}
+
+function buildAaReqToken(queryHash) {
+  const ts = Math.floor(Date.now() / 300000) * 300000;
+  const payload = JSON.stringify({
+    v: 1,
+    ts,
+    epoch: AAREQ_EPOCH,
+    buildId: AAREQ_BUILD_ID,
+    qh: queryHash,
+  });
+
+  const ivBytes = wordArrayToByteArray(
+    CryptoJS.SHA256(`${AAREQ_EPOCH}:${AAREQ_BUILD_ID}:${queryHash}:${ts}`),
+  ).slice(0, 12);
+  const keyBytes = wordArrayToByteArray(CryptoJS.enc.Hex.parse(ALLANIME_KEY_HEX));
+  const payloadBytes = wordArrayToByteArray(CryptoJS.enc.Utf8.parse(payload));
+
+  const cipher = gcm(new Uint8Array(keyBytes), new Uint8Array(ivBytes));
+  const ciphertextWithTag = cipher.encrypt(new Uint8Array(payloadBytes));
+
+  const tokenBytes = new Uint8Array(1 + ivBytes.length + ciphertextWithTag.length);
+  tokenBytes[0] = 1;
+  tokenBytes.set(ivBytes, 1);
+  tokenBytes.set(ciphertextWithTag, 1 + ivBytes.length);
+
+  return byteArrayToWordArray(Array.from(tokenBytes)).toString(CryptoJS.enc.Base64);
 }
 
 function incrementCounter(counterBytes) {
@@ -390,7 +426,10 @@ class AnimeService {
 
     try {
       const response = await CatalogService.fetchCatalog(variables);
-      return this.parseSearchResults(response.data);
+      return {
+        results: this.parseSearchResults(response.data),
+        pagination: CatalogService.getPaginationInfo(response.data),
+      };
     } catch (error) {
       logger.error("❌ ERROR - searchAnimeAdvanced:", error.message);
       throw error;
@@ -545,18 +584,24 @@ class AnimeService {
 
     try {
       const variables = { showId, translationType, episodeString };
+      const queryHash =
+        "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec";
 
       const response = await axios.get(`${API_CONFIG.BASE_URL}/api`, {
         params: {
           variables: JSON.stringify(variables),
           extensions: JSON.stringify({
-            persistedQuery: {
-              version: 1,
-              sha256Hash: "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec",
-            },
+            persistedQuery: { version: 1, sha256Hash: queryHash },
+            aaReq: buildAaReqToken(queryHash),
           }),
         },
-        headers: API_CONFIG.getGetHeaders(),
+        // AllAnime valida Origin/Referer contra su dominio espejo desde el
+        // cambio de cifrado del 2026-07-07/08; allmanga.to ya no sirve aquí.
+        headers: {
+          ...API_CONFIG.getGetHeaders(),
+          Referer: "https://youtu-chan.com",
+          Origin: "https://youtu-chan.com",
+        },
       });
 
       logger.debug("📥 getEpisodeUrl response status:", response.status);
@@ -803,13 +848,17 @@ class AnimeService {
     showId,
     episodeString,
     translationType = "sub",
-    { silent = false } = {},
+    { silent = false, excludeProviders = [] } = {},
   ) {
     const vlCacheKey = `${showId}|${episodeString}|${translationType}`;
-    const vlCached = _videoLinksCache.get(vlCacheKey);
-    if (vlCached && Date.now() - vlCached.ts < VIDEO_LINKS_CACHE_TTL) {
-      logger.debug(`📦 Cache hit: video links ep ${episodeString} (${vlCached.data.length} enlaces)`);
-      return vlCached.data;
+
+    // Con exclusiones activas necesitamos una carrera nueva — no reusar cache.
+    if (excludeProviders.length === 0) {
+      const vlCached = _videoLinksCache.get(vlCacheKey);
+      if (vlCached && Date.now() - vlCached.ts < VIDEO_LINKS_CACHE_TTL) {
+        logger.debug(`📦 Cache hit: video links ep ${episodeString} (${vlCached.data.length} enlaces)`);
+        return vlCached.data;
+      }
     }
 
     logger.debug(
@@ -826,15 +875,19 @@ class AnimeService {
         translationType,
       );
 
-      if (!providers || providers.length === 0) {
+      const usableProviders = excludeProviders.length > 0
+        ? providers.filter((p) => !excludeProviders.includes(p.name))
+        : providers;
+
+      if (!usableProviders || usableProviders.length === 0) {
         throw new Error("No se encontraron providers para este episodio");
       }
 
-      logger.debug(`📡 Providers encontrados: ${providers.length}`);
+      logger.debug(`📡 Providers encontrados: ${usableProviders.length}`);
 
       // Paso 2: Carrera — navega con el primer provider que resuelva
       logger.debug("⚡ Paso 2: Carrera entre providers...");
-      const validLinks = await this.raceValidLinks(providers);
+      const validLinks = await this.raceValidLinks(usableProviders);
 
       const elapsed = Date.now() - startTime;
       logger.debug(
@@ -842,7 +895,8 @@ class AnimeService {
       );
 
       // Guardar links en caché para acceso instantáneo al presionar siguiente
-      if (validLinks.length > 0) {
+      // (solo cuando no hay exclusiones — ese resultado es específico al retry)
+      if (validLinks.length > 0 && excludeProviders.length === 0) {
         if (_videoLinksCache.size >= VIDEO_LINKS_CACHE_MAX) {
           _videoLinksCache.delete(_videoLinksCache.keys().next().value);
         }
