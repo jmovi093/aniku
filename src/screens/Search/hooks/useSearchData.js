@@ -15,9 +15,13 @@ const YEARS = Array.from(
   (_, index) => CURRENT_YEAR - index,
 );
 
+const RESULTS_PER_PAGE = 26;
+
 const useSearchData = () => {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState([]);
   const [selectedYear, setSelectedYear] = useState(null);
@@ -35,8 +39,12 @@ const useSearchData = () => {
 
   // Ref para cancelar respuestas de requests anteriores (stale)
   const requestIdRef = React.useRef(0);
+  // Guarda la última query+filtros usados, para que "cargar más" reutilice
+  // exactamente los mismos criterios sin depender de closures viejas
+  const lastSearchRef = React.useRef({ trimmed: "", filters: null });
+  const pageRef = React.useRef(1);
 
-  // 🎯 Ejecutar búsqueda con filtros opcionales
+  // 🎯 Ejecutar búsqueda con filtros opcionales (siempre reinicia a página 1)
   const executeSearch = async (
     query = debouncedSearchTerm,
     overrideFilters = null,
@@ -70,24 +78,35 @@ const useSearchData = () => {
     // Incrementar ID; si llega una respuesta con ID viejo, se descarta
     const currentId = ++requestIdRef.current;
 
+    lastSearchRef.current = { trimmed, filters };
+    pageRef.current = 1;
     setLoading(true);
     setHasSearched(true);
 
     try {
-      const searchResults = await AnimeService.searchAnimeAdvanced({
-        query: trimmed,
-        genres: filters.genres,
-        year: filters.year,
-        season: filters.season,
-        sortBy: filters.sortBy,
-      });
+      const { results: searchResults, pagination } =
+        await AnimeService.searchAnimeAdvanced(
+          {
+            query: trimmed,
+            genres: filters.genres,
+            year: filters.year,
+            season: filters.season,
+            sortBy: filters.sortBy,
+          },
+          RESULTS_PER_PAGE,
+          1,
+        );
 
       // Ignorar si ya hay una búsqueda más reciente en vuelo
       if (currentId !== requestIdRef.current) return;
 
       setResults(searchResults);
+      setHasMore(
+        searchResults.length === RESULTS_PER_PAGE &&
+          searchResults.length < (pagination?.total || 0),
+      );
       logger.debug(
-        `🔍 BÚSQUEDA: "${trimmed}" - ${searchResults.length} resultados`,
+        `🔍 BÚSQUEDA: "${trimmed}" - ${searchResults.length}/${pagination?.total ?? "?"} resultados`,
       );
     } catch (error) {
       if (currentId !== requestIdRef.current) return;
@@ -97,9 +116,61 @@ const useSearchData = () => {
         `No se pudo realizar la búsqueda: ${error.message}`,
       );
       setResults([]);
+      setHasMore(false);
     } finally {
       if (currentId === requestIdRef.current) {
         setLoading(false);
+      }
+    }
+  };
+
+  // 📄 Cargar la siguiente página y anexar resultados (scroll infinito)
+  const loadMoreResults = async () => {
+    if (loading || loadingMore || !hasMore) return;
+
+    const { trimmed, filters } = lastSearchRef.current;
+    if (!filters) return;
+
+    const currentId = requestIdRef.current;
+    const nextPage = pageRef.current + 1;
+
+    setLoadingMore(true);
+
+    try {
+      const { results: nextResults, pagination } =
+        await AnimeService.searchAnimeAdvanced(
+          {
+            query: trimmed,
+            genres: filters.genres,
+            year: filters.year,
+            season: filters.season,
+            sortBy: filters.sortBy,
+          },
+          RESULTS_PER_PAGE,
+          nextPage,
+        );
+
+      // Descartar si mientras tanto se disparó una búsqueda nueva
+      if (currentId !== requestIdRef.current) return;
+
+      pageRef.current = nextPage;
+      setResults((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        const deduped = nextResults.filter((item) => !seen.has(item.id));
+        const merged = [...prev, ...deduped];
+        setHasMore(
+          nextResults.length === RESULTS_PER_PAGE &&
+            merged.length < (pagination?.total || 0),
+        );
+        return merged;
+      });
+    } catch (error) {
+      if (currentId !== requestIdRef.current) return;
+      logger.debug("❌ Error cargando más resultados:", error.message);
+      // No mostramos alerta — el usuario puede seguir viendo lo ya cargado
+    } finally {
+      if (currentId === requestIdRef.current) {
+        setLoadingMore(false);
       }
     }
   };
@@ -108,6 +179,8 @@ const useSearchData = () => {
   const resetSearch = () => {
     setResults([]);
     setHasSearched(false);
+    setHasMore(false);
+    pageRef.current = 1;
     clearSearch();
     setSelectedGenres([]);
     setSelectedYear(null);
@@ -132,6 +205,8 @@ const useSearchData = () => {
     setSortBy(null);
     setResults([]);
     setHasSearched(false);
+    setHasMore(false);
+    pageRef.current = 1;
   };
 
   // 🎯 Búsqueda automática cuando cambia el término de búsqueda
@@ -165,12 +240,15 @@ const useSearchData = () => {
     // 📊 Results state
     results,
     loading,
+    loadingMore,
+    hasMore,
     hasSearched,
     hasResults: results.length > 0,
     resultsCount: results.length,
 
     // 🎯 Actions
     executeSearch,
+    loadMoreResults,
     resetSearch,
     applyFilters,
 

@@ -23,12 +23,15 @@ const SearchScreen = ({ navigation }) => {
     // Results state
     results,
     loading,
+    loadingMore,
+    hasMore,
     hasSearched,
     hasResults,
     resultsCount,
 
     // Actions
     executeSearch,
+    loadMoreResults,
     applyFilters,
     clearFiltersOnly,
 
@@ -79,6 +82,9 @@ const SearchScreen = ({ navigation }) => {
         <SearchResults
           results={results}
           loading={loading}
+          loadingMore={loadingMore}
+          hasMore={hasMore}
+          onLoadMore={loadMoreResults}
           hasSearched={hasSearched}
           resultsCount={resultsCount}
           onAnimePress={handleAnimeSelect}

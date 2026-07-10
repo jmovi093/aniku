@@ -2,7 +2,13 @@
 // Lista de resultados de búsqueda
 
 import React from "react";
-import { View, Text, FlatList, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Loading } from "../../../components/ui";
 import SearchResultItem from "./SearchResultItem";
@@ -11,6 +17,9 @@ import { colors, typography, spacing } from "../../../styles";
 const SearchResults = ({
   results,
   loading,
+  loadingMore,
+  hasMore,
+  onLoadMore,
   hasSearched,
   resultsCount,
   onAnimePress,
@@ -60,6 +69,14 @@ const SearchResults = ({
     </View>
   );
 
+  // 📄 Footer con spinner mientras carga la siguiente página
+  const LoadMoreFooter = () =>
+    loadingMore ? (
+      <View style={styles.footerLoading}>
+        <ActivityIndicator size="small" color={colors.text.secondary} />
+      </View>
+    ) : null;
+
   return (
     <View style={[styles.container, style]}>
       <FlatList
@@ -70,6 +87,9 @@ const SearchResults = ({
         keyExtractor={(item) => item.id}
         ListHeaderComponent={ResultsHeader}
         ListEmptyComponent={hasSearched ? EmptyResults : null}
+        ListFooterComponent={LoadMoreFooter}
+        onEndReached={hasMore ? onLoadMore : null}
+        onEndReachedThreshold={0.5}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={
           results.length === 0 ? styles.emptyResults : styles.results
@@ -105,6 +125,12 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.sm,
     fontStyle: "italic",
     fontFamily: typography.fontFamilies.sans,
+  },
+
+  // 📄 Footer de "cargando más"
+  footerLoading: {
+    paddingVertical: spacing[6],
+    alignItems: "center",
   },
 
   // 🔄 Loading
