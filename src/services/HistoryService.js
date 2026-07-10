@@ -46,18 +46,21 @@ class HistoryService {
           totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0, // ✅ USAR currentTime
       };
 
-      // Reemplazar entrada existente del mismo anime (como ani-cli)
+      // Quitar la entrada existente del mismo anime (si la hay) y volver a
+      // insertarla al inicio — así "Viendo" siempre queda ordenado por lo
+      // último visto, sin importar la posición previa.
       const existingIndex = watching.findIndex(
         (item) => item.animeId === animeId,
       );
 
       if (existingIndex >= 0) {
-        watching[existingIndex] = watchingEntry;
-        logger.debug("🔄 Actualizando entrada existente");
+        watching.splice(existingIndex, 1);
+        logger.debug("🔄 Moviendo entrada existente al inicio");
       } else {
-        watching.unshift(watchingEntry); // Agregar al inicio
         logger.debug("➕ Agregando nueva entrada");
       }
+
+      watching.unshift(watchingEntry);
 
       // Mantener solo los últimos 20 animes
       const limitedWatching = watching.slice(0, 20);
