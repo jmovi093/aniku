@@ -10,7 +10,15 @@ import HybridHistoryService from "../../../services/HybridHistoryService";
 
 const logger = createLogger("player");
 
-export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
+// Reintentos automáticos de la misma fuente antes de probar otro provider.
+const MAX_SOURCE_RETRIES = 2;
+
+export const useVideoPlayer = (
+  route,
+  animeName,
+  currentEpisodeNumber,
+  { onProviderExhausted } = {},
+) => {
   // Estados del reproductor
   const [selectedQuality, setSelectedQuality] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -21,6 +29,9 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playableDuration, setPlayableDuration] = useState(0);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [playerError, setPlayerError] = useState(null);
+  const retryCountRef = useRef(0);
 
   // Referencias
   const videoRef = useRef(null);
@@ -65,6 +76,8 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
     setDuration(0);
     setIsBuffering(false);
     setPlayableDuration(0);
+    retryCountRef.current = 0;
+    setPlayerError(null);
     logger.debug(`🔄 Reset para episodio ${newEpisodeNum}: resume=0`);
   };
 
@@ -218,6 +231,65 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
     setCurrentTime(0);
   };
 
+  // Fuerza al <Video> a recrear el reproductor nativo desde currentTimeRef.
+  // Necesario porque re-asignar el mismo `source` no siempre reconecta tras
+  // un error fatal (token vencido, drop de red, 403 del CDN).
+  const reloadSource = () => {
+    resumeTimeRef.current = currentTimeRef.current;
+    setIsBuffering(true);
+    setReloadToken((t) => t + 1);
+  };
+
+  // ❌ Recuperación de errores fatales del player.
+  // 1) Reintenta la misma fuente (recarga nativa) hasta MAX_SOURCE_RETRIES.
+  // 2) Si sigue fallando, pide un provider distinto (excluye el actual).
+  // 3) Si tampoco hay alternativa, muestra error visible — antes se quedaba
+  //    congelado en silencio y el usuario tenía que cerrar y reabrir.
+  const onError = (error) => {
+    logger.error("❌ ERROR EN VIDEO:", error);
+
+    if (retryCountRef.current < MAX_SOURCE_RETRIES) {
+      retryCountRef.current += 1;
+      logger.debug(
+        `🔁 Reintentando fuente (${retryCountRef.current}/${MAX_SOURCE_RETRIES})`,
+      );
+      setTimeout(reloadSource, 700 * retryCountRef.current);
+      return;
+    }
+
+    if (onProviderExhausted) {
+      logger.debug("🔀 Fuente agotada, probando con otro provider...");
+      resumeTimeRef.current = currentTimeRef.current;
+      onProviderExhausted()
+        .then((switched) => {
+          if (switched) {
+            retryCountRef.current = 0;
+            setIsBuffering(true);
+            setReloadToken((t) => t + 1);
+          } else {
+            setPlayerError(
+              "No se pudo reproducir este episodio. Intenta de nuevo más tarde.",
+            );
+          }
+        })
+        .catch(() => {
+          setPlayerError(
+            "No se pudo reproducir este episodio. Intenta de nuevo más tarde.",
+          );
+        });
+      return;
+    }
+
+    setPlayerError("Ocurrió un error reproduciendo el video.");
+  };
+
+  // Reintento manual desde la UI (botón en el overlay de error)
+  const retryPlayback = () => {
+    retryCountRef.current = 0;
+    setPlayerError(null);
+    reloadSource();
+  };
+
   return {
     selectedQuality,
     isPlaying,
@@ -227,6 +299,8 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
     hasInitialLoad,
     isFullscreen,
     playableDuration,
+    reloadToken,
+    playerError,
     videoRef,
     setSelectedQuality,
     setHasInitialLoad,
@@ -241,6 +315,8 @@ export const useVideoPlayer = (route, animeName, currentEpisodeNumber) => {
     seekBy,
     onBuffer,
     onEnd,
+    onError,
+    retryPlayback,
     saveProgress,
   };
 };

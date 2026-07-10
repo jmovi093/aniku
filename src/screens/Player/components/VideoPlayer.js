@@ -16,8 +16,9 @@ import Video from "react-native-video";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { playerStyles as styles } from "../styles/PlayerStyles";
+import { VolumeManager } from "react-native-volume-manager";
+import * as Brightness from "expo-brightness";
 
-const logger = createLogger("player");
 const castLogger = createLogger("cast");
 
 let startProxyServer = () => Promise.resolve();
@@ -63,11 +64,15 @@ const VideoPlayer = ({
   duration,
   isBuffering,
   playableDuration,
+  reloadToken,
+  playerError,
   onProgress,
   onLoad,
   onSeek,
   onBuffer,
   onEnd,
+  onError,
+  retryPlayback,
   seekBy,
   seekTo,
   togglePlayPause,
@@ -86,16 +91,17 @@ const VideoPlayer = ({
   const [videoAspectRatio, setVideoAspectRatio] = useState(16 / 9);
   const hideTimerRef = useRef(null);
 
-  // Estado de volumen para swipe vertical
-  const [volume, setVolume] = useState(1.0);
-  const [showVolumeIndicator, setShowVolumeIndicator] = useState(false);
+  // Volumen del sistema (derecha) y brillo (izquierda)
   const volumeRef = useRef(1.0);
-  const volumeHideTimer = useRef(null);
+  const brightnessRef = useRef(0.5);
+  const [brightness, setBrightness] = useState(0.5);
+  const [showBrightnessIndicator, setShowBrightnessIndicator] = useState(false);
+  const brightnessHideTimer = useRef(null);
+  const swipeStartVolume = useRef(1.0);
+  const swipeStartBrightness = useRef(0.5);
 
   const isSwipingLeft = useRef(false);
   const isSwipingRight = useRef(false);
-  const swipeStartVolumeLeft = useRef(1.0);
-  const swipeStartVolumeRight = useRef(1.0);
 
   const client = useRemoteMediaClient();
   const castState = useCastState();
@@ -271,6 +277,21 @@ const VideoPlayer = ({
   const rightSessionTimer = useRef(null);
   const rightSingleTapTimer = useRef(null);
 
+  // Inicializar volumen y brillo nativos, y escuchar cambios de volumen por hardware
+  useEffect(() => {
+    VolumeManager.getVolume().then((r) => {
+      volumeRef.current = r.volume ?? 1.0;
+    });
+    Brightness.getBrightnessAsync().then((b) => {
+      brightnessRef.current = b;
+      setBrightness(b);
+    });
+    const sub = VolumeManager.addVolumeListener((r) => {
+      volumeRef.current = r.volume ?? volumeRef.current;
+    });
+    return () => sub.remove();
+  }, []);
+
   useEffect(
     () => () => {
       clearTimeout(hideTimerRef.current);
@@ -278,7 +299,7 @@ const VideoPlayer = ({
       clearTimeout(leftSingleTapTimer.current);
       clearTimeout(rightSessionTimer.current);
       clearTimeout(rightSingleTapTimer.current);
-      clearTimeout(volumeHideTimer.current);
+      clearTimeout(brightnessHideTimer.current);
     },
     [],
   );
@@ -410,29 +431,28 @@ const VideoPlayer = ({
   const handleTapRightRef = useRef(handleTapRight);
   handleTapRightRef.current = handleTapRight;
 
+  // Zona izquierda → brillo de pantalla
   const leftZonePanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         isSwipingLeft.current = false;
-        swipeStartVolumeLeft.current = volumeRef.current;
+        swipeStartBrightness.current = brightnessRef.current;
       },
       onPanResponderMove: (_, g) => {
         if (Math.abs(g.dy) > 20 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5) {
           isSwipingLeft.current = true;
-          clearTimeout(volumeHideTimer.current);
-          setShowVolumeIndicator(true);
-          const newVol = Math.min(1, Math.max(0, swipeStartVolumeLeft.current - g.dy * 0.004));
-          volumeRef.current = newVol;
-          setVolume(newVol);
+          clearTimeout(brightnessHideTimer.current);
+          setShowBrightnessIndicator(true);
+          const newB = Math.min(1, Math.max(0.02, swipeStartBrightness.current - g.dy * 0.004));
+          brightnessRef.current = newB;
+          setBrightness(newB);
+          Brightness.setBrightnessAsync(newB);
         }
       },
       onPanResponderRelease: (_, g) => {
         if (isSwipingLeft.current) {
-          const newVol = Math.min(1, Math.max(0, swipeStartVolumeLeft.current - g.dy * 0.004));
-          volumeRef.current = newVol;
-          setVolume(newVol);
-          volumeHideTimer.current = setTimeout(() => setShowVolumeIndicator(false), 1500);
+          brightnessHideTimer.current = setTimeout(() => setShowBrightnessIndicator(false), 1500);
         } else {
           handleTapLeftRef.current();
         }
@@ -440,30 +460,24 @@ const VideoPlayer = ({
     }),
   ).current;
 
+  // Zona derecha → volumen del sistema (muestra UI nativa de Android)
   const rightZonePanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         isSwipingRight.current = false;
-        swipeStartVolumeRight.current = volumeRef.current;
+        swipeStartVolume.current = volumeRef.current;
       },
       onPanResponderMove: (_, g) => {
         if (Math.abs(g.dy) > 20 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5) {
           isSwipingRight.current = true;
-          clearTimeout(volumeHideTimer.current);
-          setShowVolumeIndicator(true);
-          const newVol = Math.min(1, Math.max(0, swipeStartVolumeRight.current - g.dy * 0.004));
+          const newVol = Math.min(1, Math.max(0, swipeStartVolume.current - g.dy * 0.0022));
           volumeRef.current = newVol;
-          setVolume(newVol);
+          VolumeManager.setVolume(newVol, { showUI: true });
         }
       },
       onPanResponderRelease: (_, g) => {
-        if (isSwipingRight.current) {
-          const newVol = Math.min(1, Math.max(0, swipeStartVolumeRight.current - g.dy * 0.004));
-          volumeRef.current = newVol;
-          setVolume(newVol);
-          volumeHideTimer.current = setTimeout(() => setShowVolumeIndicator(false), 1500);
-        } else {
+        if (!isSwipingRight.current) {
           handleTapRightRef.current();
         }
       },
@@ -533,6 +547,7 @@ const VideoPlayer = ({
       {currentLink?.url ? (
         <>
           <Video
+            key={`video-${reloadToken}`}
             ref={videoRef}
             source={source}
             style={styles.videoPlayer}
@@ -544,9 +559,8 @@ const VideoPlayer = ({
             onSeek={onSeek}
             onBuffer={onBuffer}
             onEnd={onEnd}
-            onError={(error) => logger.error("❌ ERROR EN VIDEO:", error)}
+            onError={onError}
             progressUpdateInterval={1000}
-            volume={volume}
             muted={false}
             repeat={false}
             playWhenInactive={false}
@@ -571,29 +585,49 @@ const VideoPlayer = ({
           )}
 
           {/* Buffering — visible cuando no hay controles */}
-          {isBuffering && !controlsVisible && (
+          {isBuffering && !controlsVisible && !playerError && (
             <View style={styles.bufferingOverlay} pointerEvents="none">
               <ActivityIndicator size="large" color="#fff" />
             </View>
           )}
 
-          {/* Indicador de volumen */}
-          {showVolumeIndicator && (
-            <View style={styles.volumeOverlay} pointerEvents="none">
+          {/* Error fatal — se agotaron los reintentos automáticos */}
+          {playerError && (
+            <View style={styles.bufferingOverlay} pointerEvents="box-none">
+              <MaterialIcons name="error-outline" size={40} color="#fff" />
+              <Text
+                style={{
+                  color: "#fff",
+                  marginTop: 8,
+                  marginBottom: 16,
+                  fontSize: 14,
+                  textAlign: "center",
+                  paddingHorizontal: 24,
+                }}
+              >
+                {playerError}
+              </Text>
+              <TouchableOpacity
+                onPress={retryPlayback}
+                style={styles.playPauseBtn}
+                pointerEvents="auto"
+              >
+                <MaterialIcons name="refresh" size={28} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Indicador de brillo (izquierda) */}
+          {showBrightnessIndicator && (
+            <View style={styles.brightnessOverlay} pointerEvents="none">
               <MaterialIcons
-                name={
-                  volume === 0
-                    ? "volume-off"
-                    : volume < 0.5
-                      ? "volume-down"
-                      : "volume-up"
-                }
+                name={brightness < 0.3 ? "brightness-low" : brightness < 0.7 ? "brightness-medium" : "brightness-high"}
                 size={24}
                 color="#fff"
               />
               <View style={styles.volumeBar}>
                 <View
-                  style={[styles.volumeBarFill, { height: `${volume * 100}%` }]}
+                  style={[styles.volumeBarFill, { height: `${brightness * 100}%` }]}
                 />
               </View>
             </View>

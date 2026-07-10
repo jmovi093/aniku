@@ -259,10 +259,23 @@ export const playerStyles = StyleSheet.create({
     fontWeight: typography.fontWeights.semibold,
   },
 
-  // Indicador de volumen (swipe vertical)
+  // Indicador de volumen (swipe vertical, zona derecha)
   volumeOverlay: {
     position: "absolute",
     right: 20,
+    top: "50%",
+    transform: [{ translateY: -50 }],
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 12,
+    padding: 12,
+    alignItems: "center",
+    zIndex: 50,
+    minWidth: 60,
+  },
+  // Indicador de brillo (swipe vertical, zona izquierda)
+  brightnessOverlay: {
+    position: "absolute",
+    left: 20,
     top: "50%",
     transform: [{ translateY: -50 }],
     backgroundColor: "rgba(0,0,0,0.6)",

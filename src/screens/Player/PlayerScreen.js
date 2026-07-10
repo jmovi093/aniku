@@ -7,6 +7,10 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { VideoPlayer } from "./components";
 import { useVideoPlayer, useEpisodeManager } from "./hooks";
 import { playerStyles as styles } from "./styles/PlayerStyles";
+import AnimeService from "../../services/AnimeService";
+import { createLogger } from "../../utils/logger";
+
+const logger = createLogger("player");
 
 const PlayerScreen = ({ route, navigation }) => {
   const {
@@ -16,6 +20,47 @@ const PlayerScreen = ({ route, navigation }) => {
   } = route.params;
 
   const {
+    currentEpisodeNumber,
+    currentVideoLinks,
+    isLoadingNextEpisode,
+    hasNextEpisode,
+    setCurrentEpisodeNumber,
+    setCurrentVideoLinks,
+    setIsLoadingNextEpisode,
+    setShowLoadingAlert,
+    handleNextEpisode: baseHandleNextEpisode,
+  } = useEpisodeManager(initialEpisodeNumber, initialVideoLinks, route);
+
+  // Cuando el player agota los reintentos con la fuente actual: pide una
+  // carrera nueva excluyendo ese provider y actualiza los links si hay éxito.
+  const handleProviderExhausted = async () => {
+    const failedProvider = currentVideoLinks[0]?.provider;
+    if (!failedProvider) return false;
+
+    try {
+      const freshLinks = await AnimeService.getOptimizedVideoLinks(
+        route.params.animeId,
+        currentEpisodeNumber.toString(),
+        "sub",
+        { excludeProviders: [failedProvider] },
+      );
+
+      if (freshLinks && freshLinks.length > 0) {
+        logger.debug(
+          `🔀 Cambiando de provider tras fallo: ${failedProvider} → ${freshLinks[0].provider}`,
+        );
+        setCurrentVideoLinks(freshLinks);
+        setSelectedQuality(0);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.debug("❌ No se encontró provider alternativo:", error.message);
+      return false;
+    }
+  };
+
+  const {
     selectedQuality,
     isPlaying,
     currentTime,
@@ -23,6 +68,8 @@ const PlayerScreen = ({ route, navigation }) => {
     isBuffering,
     isFullscreen,
     playableDuration,
+    reloadToken,
+    playerError,
     videoRef,
     setSelectedQuality,
     setHasInitialLoad,
@@ -37,19 +84,11 @@ const PlayerScreen = ({ route, navigation }) => {
     seekTo,
     onBuffer,
     onEnd,
-  } = useVideoPlayer(route, animeName, initialEpisodeNumber);
-
-  const {
-    currentEpisodeNumber,
-    currentVideoLinks,
-    isLoadingNextEpisode,
-    hasNextEpisode,
-    setCurrentEpisodeNumber,
-    setCurrentVideoLinks,
-    setIsLoadingNextEpisode,
-    setShowLoadingAlert,
-    handleNextEpisode: baseHandleNextEpisode,
-  } = useEpisodeManager(initialEpisodeNumber, initialVideoLinks, route);
+    onError,
+    retryPlayback,
+  } = useVideoPlayer(route, animeName, initialEpisodeNumber, {
+    onProviderExhausted: handleProviderExhausted,
+  });
 
   const nextEpisodeNum = parseInt(currentEpisodeNumber) + 1;
   const animeIdForNav = route.params.animeId;
@@ -96,11 +135,15 @@ const PlayerScreen = ({ route, navigation }) => {
         duration={duration}
         isBuffering={isBuffering}
         playableDuration={playableDuration}
+        reloadToken={reloadToken}
+        playerError={playerError}
         onProgress={onProgress}
         onLoad={onLoad}
         onSeek={onSeek}
         onBuffer={onBuffer}
         onEnd={onEnd}
+        onError={onError}
+        retryPlayback={retryPlayback}
         seekBy={seekBy}
         seekTo={seekTo}
         togglePlayPause={togglePlayPause}
