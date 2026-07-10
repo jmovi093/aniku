@@ -48,7 +48,10 @@ const EpisodeRow = ({
       <View style={styles.episodeRowThumb}>
         {info?.thumbnail ? (
           <Image
-            source={{ uri: info.thumbnail }}
+            source={{
+              uri: info.thumbnail,
+              headers: { Referer: "https://allmanga.to/" },
+            }}
             style={styles.episodeRowThumbImg}
           />
         ) : (
