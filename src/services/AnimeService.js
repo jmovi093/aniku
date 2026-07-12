@@ -11,10 +11,20 @@ import { filterProviders } from "../utils/urlDecoder.js";
 import VideoService from "./VideoService.js";
 import CatalogService from "./CatalogService.js";
 
-// AllAnime cambió su esquema de cifrado el 2026-07-07/08. La clave ahora es
-// un valor fijo derivado por XOR en su build (ya no SHA256("Xot36i3lK3:v1")).
-const ALLANIME_KEY_HEX =
+// AllAnime cambió su esquema de cifrado el 2026-07-07/08 a una clave fija
+// derivada por XOR en su build, y ha estado alternando desde entonces entre
+// esa clave nueva y la vieja SHA256("Xot36i3lK3:v1") de forma impredecible
+// (confirmado en vivo — la vieja volvió a funcionar el 2026-07-12 sin aviso).
+// Se prueban ambas en cascada al descifrar en vez de asumir una sola.
+const ALLANIME_KEY_HEX_NEW =
   "22196fa6afca95309fdabe9a3534b87cd2454e50efeabfcbdbdfd3de678b3982";
+const ALLANIME_KEY_HEX_OLD = CryptoJS.SHA256("Xot36i3lK3:v1").toString(
+  CryptoJS.enc.Hex,
+);
+const ALLANIME_KEY_CANDIDATES = [ALLANIME_KEY_HEX_NEW, ALLANIME_KEY_HEX_OLD];
+// Clave usada para el token aaReq saliente (no se alterna: el gate de auth
+// de la query en sí no ha cambiado, solo el cifrado de la respuesta).
+const ALLANIME_KEY_HEX = ALLANIME_KEY_HEX_NEW;
 
 // Parámetros del token `aaReq` requerido desde esa misma fecha para las
 // queries de episodio (sin él, la API responde AA_CRYPTO_MISSING). Son
@@ -242,33 +252,34 @@ function decryptTobeparsedSourceUrls(blob) {
       return [];
     }
 
-    const plaintext = decryptCtrOpenSslCompat(
-      cipherHex,
-      ALLANIME_KEY_HEX,
-      counterHex,
-    ).replace(/\0+$/g, "");
+    // AllAnime alterna entre su clave nueva y la vieja sin aviso — se
+    // prueban ambas y se usa la primera que produzca sourceUrls válidos.
+    for (const keyHex of ALLANIME_KEY_CANDIDATES) {
+      const plaintext = decryptCtrOpenSslCompat(
+        cipherHex,
+        keyHex,
+        counterHex,
+      ).replace(/\0+$/g, "");
 
-    if (!plaintext) {
-      logger.warn("⚠️ tobeparsed descifrado vacío");
-      return [];
-    }
+      if (!plaintext) continue;
 
-    const parsed = safeJsonParse(plaintext);
+      const parsed = safeJsonParse(plaintext);
 
-    if (parsed) {
-      const parsedSourceUrls = extractSourceUrlsFromParsedPayload(parsed);
-      if (parsedSourceUrls.length > 0) {
-        return parsedSourceUrls;
+      if (parsed) {
+        const parsedSourceUrls = extractSourceUrlsFromParsedPayload(parsed);
+        if (parsedSourceUrls.length > 0) {
+          return parsedSourceUrls;
+        }
+      }
+
+      const regexSourceUrls = extractSourceUrlsFromPlaintext(plaintext);
+      if (regexSourceUrls.length > 0) {
+        return regexSourceUrls;
       }
     }
 
-    const regexSourceUrls = extractSourceUrlsFromPlaintext(plaintext);
-    if (regexSourceUrls.length > 0) {
-      return regexSourceUrls;
-    }
-
     logger.warn(
-      `⚠️ tobeparsed descifrado, pero sin sourceUrls parseables (plain_len=${plaintext.length})`,
+      "⚠️ tobeparsed descifrado con ambas claves, pero sin sourceUrls parseables",
     );
     return [];
   } catch (error) {
