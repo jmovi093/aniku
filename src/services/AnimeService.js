@@ -12,26 +12,36 @@ import VideoService from "./VideoService.js";
 import CatalogService from "./CatalogService.js";
 
 // AllAnime cambió su esquema de cifrado el 2026-07-07/08 a una clave fija
-// derivada por XOR en su build, y ha estado alternando desde entonces entre
-// esa clave nueva y la vieja SHA256("Xot36i3lK3:v1") de forma impredecible
-// (confirmado en vivo — la vieja volvió a funcionar el 2026-07-12 sin aviso).
-// Se prueban ambas en cascada al descifrar en vez de asumir una sola.
-const ALLANIME_KEY_HEX_NEW =
+// derivada por XOR en su build, y desde entonces la ha rotado repetidas
+// veces de forma impredecible (confirmado en vivo cada vez: 22196fa6... →
+// volvió a la vieja SHA256("Xot36i3lK3:v1") el 2026-07-12 → cf4777b5... el
+// 2026-07-17). Se prueban todas las conocidas en cascada al descifrar en
+// vez de asumir una sola — ver PR #1792 de pystardust/ani-cli para la más
+// reciente si esto vuelve a fallar.
+const ALLANIME_KEY_HEX_LATEST =
+  "cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359";
+const ALLANIME_KEY_HEX_PREV =
   "22196fa6afca95309fdabe9a3534b87cd2454e50efeabfcbdbdfd3de678b3982";
-const ALLANIME_KEY_HEX_OLD = CryptoJS.SHA256("Xot36i3lK3:v1").toString(
+const ALLANIME_KEY_HEX_ORIGINAL = CryptoJS.SHA256("Xot36i3lK3:v1").toString(
   CryptoJS.enc.Hex,
 );
-const ALLANIME_KEY_CANDIDATES = [ALLANIME_KEY_HEX_NEW, ALLANIME_KEY_HEX_OLD];
-// Clave usada para el token aaReq saliente (no se alterna: el gate de auth
-// de la query en sí no ha cambiado, solo el cifrado de la respuesta).
-const ALLANIME_KEY_HEX = ALLANIME_KEY_HEX_NEW;
+const ALLANIME_KEY_CANDIDATES = [
+  ALLANIME_KEY_HEX_LATEST,
+  ALLANIME_KEY_HEX_PREV,
+  ALLANIME_KEY_HEX_ORIGINAL,
+];
+// Clave usada para el token aaReq saliente — debe ser la más reciente para
+// que la API acepte la query en sí (a diferencia del descifrado de la
+// respuesta, este lado no tiene fallback: si está desactualizada, la API
+// responde AA_CRYPTO_STALE).
+const ALLANIME_KEY_HEX = ALLANIME_KEY_HEX_LATEST;
 
-// Parámetros del token `aaReq` requerido desde esa misma fecha para las
-// queries de episodio (sin él, la API responde AA_CRYPTO_MISSING). Son
-// valores fijos observados en el build actual del sitio; si AllAnime los
-// rota de nuevo habrá que volver a extraerlos.
-const AAREQ_EPOCH = 4128;
-const AAREQ_BUILD_ID = "9";
+// Parámetros del token `aaReq` requerido desde 2026-07-07/08 para las
+// queries de episodio (sin ellos, la API responde AA_CRYPTO_MISSING/STALE).
+// Son valores observados en el build actual del sitio; si AllAnime los rota
+// de nuevo habrá que volver a extraerlos (ver PR #1792 la última vez).
+const AAREQ_EPOCH = 4130;
+const AAREQ_BUILD_ID = "12";
 
 function safeJsonParse(value) {
   if (typeof value !== "string" || value.length === 0) {
