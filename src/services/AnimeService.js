@@ -15,13 +15,14 @@ import CatalogService from "./CatalogService.js";
 // derivada por XOR en su build, y desde entonces la ha rotado repetidas
 // veces de forma impredecible (confirmado en vivo cada vez: 22196fa6... →
 // volvió a la vieja SHA256("Xot36i3lK3:v1") el 2026-07-12 → cf4777b5... el
-// 2026-07-17). Se prueban todas las conocidas en cascada al descifrar en
-// vez de asumir una sola — ver PR #1792 de pystardust/ani-cli para la más
-// reciente si esto vuelve a fallar.
+// 2026-07-17 → e661283a... el 2026-07-20, junto con un nuevo hash de query
+// de episodio). Se prueban todas las conocidas en cascada al descifrar en
+// vez de asumir una sola — ver issue #1802 de pystardust/ani-cli para la
+// más reciente si esto vuelve a fallar.
 const ALLANIME_KEY_HEX_LATEST =
-  "cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359";
+  "e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0";
 const ALLANIME_KEY_HEX_PREV =
-  "22196fa6afca95309fdabe9a3534b87cd2454e50efeabfcbdbdfd3de678b3982";
+  "cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359";
 const ALLANIME_KEY_HEX_ORIGINAL = CryptoJS.SHA256("Xot36i3lK3:v1").toString(
   CryptoJS.enc.Hex,
 );
@@ -39,9 +40,9 @@ const ALLANIME_KEY_HEX = ALLANIME_KEY_HEX_LATEST;
 // Parámetros del token `aaReq` requerido desde 2026-07-07/08 para las
 // queries de episodio (sin ellos, la API responde AA_CRYPTO_MISSING/STALE).
 // Son valores observados en el build actual del sitio; si AllAnime los rota
-// de nuevo habrá que volver a extraerlos (ver PR #1792 la última vez).
-const AAREQ_EPOCH = 4130;
-const AAREQ_BUILD_ID = "12";
+// de nuevo habrá que volver a extraerlos (ver issue #1802 la última vez).
+const AAREQ_EPOCH = 6884;
+const AAREQ_BUILD_ID = "51";
 
 function safeJsonParse(value) {
   if (typeof value !== "string" || value.length === 0) {
@@ -606,7 +607,7 @@ class AnimeService {
     try {
       const variables = { showId, translationType, episodeString };
       const queryHash =
-        "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec";
+        "f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0";
 
       const response = await axios.get(`${API_CONFIG.BASE_URL}/api`, {
         params: {
