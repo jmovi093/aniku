@@ -46,16 +46,20 @@ Parsear el JSON entre los marcadores `__DIAGNOSE_JSON__` y `__END_DIAGNOSE_JSON_
 - Decirle al usuario que busque en DevTools del browser: Network tab → filtra por `episodeString` → copia el nuevo hash del parámetro `extensions`
 - Actualizar en `src/services/AnimeService.js`
 
-### `AA_CRYPTO_MISSING` (requiere investigación — esquema activo desde 2026-07-07/08)
-- La query de episodio (providers) ahora exige, además del hash de `persistedQuery`, un token `aaReq` en `extensions`: AES-256-GCM de un payload `{v,ts,epoch,buildId,qh}`, con IV = `SHA256("{epoch}:{buildId}:{qh}:{ts}")` (12 primeros bytes) y `ts` redondeado a ventanas de 5 min. Ver `buildAaReqToken()` en `src/services/AnimeService.js` y la misma lógica duplicada en `.claude/diagnose-api.js`.
-- La clave AES cambió de `SHA256("Xot36i3lK3:v1")` a un valor fijo derivado por XOR en el build del sitio: `22196fa6afca95309fdabe9a3534b87cd2454e50efeabfcbdbdfd3de678b3982` (constante `ALLANIME_KEY_HEX`).
-- El `Referer`/`Origin` para esta query específica debe ser `https://youtu-chan.com` (no `https://allmanga.to`, que sigue sirviendo para catálogo/trending/episodios).
-- `AAREQ_EPOCH` (4128) y `AAREQ_BUILD_ID` ("9") están hardcodeados — si AllAnime los rota y el diagnóstico vuelve a fallar con `AA_CRYPTO_MISSING`, hay que extraerlos de nuevo inspeccionando el JS del sitio (o revisar issues recientes en `pystardust/ani-cli` — ahí es donde se encontraron la última vez, ver PR #1772 y #1774).
-- Requiere `@noble/ciphers` como dependencia (AES-GCM real; `crypto-js` no lo soporta).
+### `AA_CRYPTO_MISSING` / `AA_CRYPTO_STALE` (esquema mkissa — clave derivada en runtime desde 2026-07-22)
+- La query de episodio (providers) exige, además del hash de `persistedQuery`, un token `aaReq` en `extensions`: AES-256-GCM de un payload `{v,ts,epoch,qh}` (¡sin `buildId` desde la migración a mkissa!), con IV = `SHA256("{epoch}:{qh}:{ts}")` (12 primeros bytes) y `ts` redondeado a ventanas de 5 min. Ver `buildAaReqToken()` en `src/services/AnimeService.js` y la misma lógica duplicada en `.claude/diagnose-api.js`.
+- **La clave AES ya NO se hardcodea — se DERIVA en runtime** (`deriveKeyMaterial()` / `fetchKeys()`): se baja el HTML de `https://mkissa.to` (`epoch` + `partB`), el `…/entry/app.<hash>.js` del build y sus primeros chunks JS (mask de 64 hex), y `clave = mask XOR partB`. El sitio se baja con fetch plano (sin Cloudflare) — no hace falta WebView.
+- El `Referer`/`Origin` para esta query específica debe ser `https://mkissa.to` (antes youtu-chan.com; `https://allmanga.to` sigue sirviendo para catálogo/trending/episodios en api.allanime.day).
+- **Cómo interpretar el fallo** (importa si cambió el ESQUEMA, no solo los valores — los valores ya se derivan solos):
+  - `AA_CRYPTO_STALE` → clave/epoch derivados quedaron viejos. La app re-deriva sola (retry en `getEpisodeUrl`); si persiste en `/diagnose`, `fetchKeys()` está sacando valores malos → revisar el HTML/regex del sitio.
+  - `AA_CRYPTO_MISSING` → falta el token o cambió su formato (¿volvió `buildId`? ¿cambió el layout token/IV?).
+  - La derivación falla (no se pudo sacar epoch/partB/app.js/mask) → cambió el build/dominio del sitio → revisar `KEY_SITE`/`KEY_CDN` y los regex de `fetchKeys` (¿mkissa cambió de dominio otra vez?).
+  - Comparar siempre con el `ani-cli` actual de `pystardust/ani-cli` (PR #1779 trajo este esquema; los maintainers esperan rotaciones frecuentes durante la transición a mkissa).
+- Requiere `@noble/ciphers` como dependencia (AES-GCM real, encrypt del token y decrypt de `tobeparsed`; `crypto-js` no soporta GCM).
 
-### `DECRYPT_KEY` (requiere investigación)
-- La clave AES para descifrar el blob `tobeparsed` es la misma `ALLANIME_KEY_HEX` de arriba — si vuelve a cambiar, ambos flujos (descifrado de sourceUrls y generación de `aaReq`) se rompen a la vez
-- Esto requiere reverse engineering del JS de AllAnime — notificar al usuario
+### `DECRYPT_KEY` (el descifrado de `tobeparsed` usa la MISMA clave derivada)
+- `tobeparsed` ahora es AES-256-GCM (antes CTR): 1 byte de versión, 12 de IV, ciphertext, 16 de tag. Se descifra con la misma clave derivada del token — así que si la derivación se rompe, ambos flujos (descifrado de sourceUrls y generación de `aaReq`) se caen a la vez.
+- Si `tobeparsed` viene presente pero descifra a basura → cambió el cifrado de la RESPUESTA (¿volvió a CTR? ¿otra derivación?) — investigar contra el JS de mkissa/ani-cli.
 
 **4. Aplicar fixes automáticos**
 
@@ -124,8 +128,7 @@ El hash actual está en `src/services/AnimeService.js` — buscar `sha256Hash`.
 
 ### Paso 3 — Descifrar el blob tobeparsed → sourceUrls
 
-El blob usa AES-CTR con clave derivada de `SHA256("Xot36i3lK3:v1")`.
-El script `.claude/probe-providers.js` ya tiene el descifrado completo — usarlo directamente.
+**(Esquema mkissa, 2026-07-22)** El blob es AES-256-**GCM** (1 byte versión, 12 IV, ciphertext, 16 tag) con la **clave derivada en runtime** (`mask XOR partB`, ver `deriveKeyMaterial()`/`fetchKeys()`), NO la vieja `SHA256("Xot36i3lK3:v1")` en CTR. El script `.claude/diagnose-api.js` ya deriva la clave y descifra — usarlo directamente. El plaintext viene como `{"episode":{"sourceUrls":[…]}}`.
 
 Para inspeccionar manualmente el resultado descifrado:
 ```bash

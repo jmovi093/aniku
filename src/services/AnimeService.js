@@ -6,43 +6,60 @@ import { createLogger } from "../utils/logger";
 import axios from "axios";
 import CryptoJS from "crypto-js";
 import { gcm } from "@noble/ciphers/aes.js";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_CONFIG, PROVIDER_MAPPING } from "../utils/apiConfig.js";
 import { filterProviders } from "../utils/urlDecoder.js";
 import VideoService from "./VideoService.js";
 import CatalogService from "./CatalogService.js";
 
-// AllAnime cambió su esquema de cifrado el 2026-07-07/08 a una clave fija
-// derivada por XOR en su build, y desde entonces la ha rotado repetidas
-// veces de forma impredecible (confirmado en vivo cada vez: 22196fa6... →
-// volvió a la vieja SHA256("Xot36i3lK3:v1") el 2026-07-12 → cf4777b5... el
-// 2026-07-17 → e661283a... el 2026-07-20, junto con un nuevo hash de query
-// de episodio). Se prueban todas las conocidas en cascada al descifrar en
-// vez de asumir una sola — ver issue #1802 de pystardust/ani-cli para la
-// más reciente si esto vuelve a fallar.
-const ALLANIME_KEY_HEX_LATEST =
-  "e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0";
-const ALLANIME_KEY_HEX_PREV =
-  "cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359";
-const ALLANIME_KEY_HEX_ORIGINAL = CryptoJS.SHA256("Xot36i3lK3:v1").toString(
-  CryptoJS.enc.Hex,
-);
-const ALLANIME_KEY_CANDIDATES = [
-  ALLANIME_KEY_HEX_LATEST,
-  ALLANIME_KEY_HEX_PREV,
-  ALLANIME_KEY_HEX_ORIGINAL,
-];
-// Clave usada para el token aaReq saliente — debe ser la más reciente para
-// que la API acepte la query en sí (a diferencia del descifrado de la
-// respuesta, este lado no tiene fallback: si está desactualizada, la API
-// responde AA_CRYPTO_STALE).
-const ALLANIME_KEY_HEX = ALLANIME_KEY_HEX_LATEST;
-
-// Parámetros del token `aaReq` requerido desde 2026-07-07/08 para las
-// queries de episodio (sin ellos, la API responde AA_CRYPTO_MISSING/STALE).
-// Son valores observados en el build actual del sitio; si AllAnime los rota
-// de nuevo habrá que volver a extraerlos (ver issue #1802 la última vez).
-const AAREQ_EPOCH = 6884;
-const AAREQ_BUILD_ID = "51";
+// ─── Crypto de la query de episodio (providers) ─────────────────────────────
+//
+// HISTORIA (dejada a propósito por si hay que hacer rollback o entender por qué):
+//
+// 1) Hasta 2026-07-06: persisted query simple (solo el hash sha256, sin token)
+//    y `tobeparsed` en AES-256-CTR con clave fija SHA256("Xot36i3lK3:v1").
+//    Referer allmanga.to.
+// 2) 2026-07-07/08: AllAnime añadió anti-scraping. La query pasó a exigir un
+//    token `aaReq` (AES-256-GCM de {v,ts,epoch,buildId,qh}, IV=SHA256(
+//    "epoch:buildId:qh:ts")[:12]) y empezó a ROTAR la clave AES sin aviso.
+//    Fuimos persiguiendo valores hardcodeados (cada rotación = /release manual):
+//    22196fa6… → volvió a Xot36i3lK3 el 07-12 → cf4777b5… (07-17) → e661283a…
+//    (07-20). epoch/buildId llegaron a 6884 / "51". Referer pasó a youtu-chan.com.
+// 3) 2026-07-22 (ACTUAL): migración allanime.day → mkissa.net. La clave dejó de
+//    hardcodearse: ahora se DERIVA en runtime del sitio (ver deriveKeyMaterial),
+//    igual que pystardust/ani-cli 4.15.0 (PR #1779). El `aaReq` perdió `buildId`
+//    y `tobeparsed` pasó de CTR a GCM. Referer pasó a mkissa.to.
+//
+// Derivación actual (sin hardcodear clave/epoch):
+//   1. `epoch` y `partB` del HTML de https://mkissa.to
+//   2. `mask` (32 bytes en hex) del primer chunk JS del build que lo tenga
+//   3. clave AES-256 = mask XOR partB  (byte a byte)
+// El sitio se baja con fetch plano (sin challenge de Cloudflare), así que no
+// hace falta WebView. Si el esquema de DERIVACIÓN cambia (no solo los valores),
+// revisar el PR/issue reciente en pystardust/ani-cli y comparar con su `ani-cli`.
+//
+// PERSISTENCIA (estrategia lazy — ver getKeyMaterial/refreshKeyMaterial):
+// la clave derivada se guarda en AsyncStorage y sobrevive cierres de app. NO se
+// deriva de forma proactiva: se usa la guardada hasta que la API la rechaza
+// (AA_CRYPTO_STALE/MISSING), y solo ahí se re-deriva del sitio y se re-guarda.
+// Como AllAnime rota pocas veces (~días), el caso común no paga red extra.
+//
+// Último esquema hardcodeado conocido (2026-07-20), por si hace falta rollback:
+//   clave e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0,
+//   epoch 6884, buildId "51", referer youtu-chan.com, tobeparsed en AES-256-CTR
+//   con counter = IV+"00000002", clave probada en cascada contra varias candidatas.
+const KEY_SITE = "https://mkissa.to";
+const KEY_CDN = "https://cdn.mkissa.net/all/mk/_app/immutable";
+// Referer/Origin que la API exige para la query de episodio desde la
+// migración a mkissa (antes era youtu-chan.com; allmanga.to nunca sirvió aquí).
+const EPISODE_REFERER = "https://mkissa.to";
+// Clave de AsyncStorage donde se PERSISTE el material derivado {epoch, keyHex}.
+// La estrategia es lazy: se confía en la clave guardada (sobrevive cierres de
+// app) hasta que la API la rechaza (AA_CRYPTO_STALE/MISSING); solo ahí se
+// re-deriva del sitio y se re-guarda. Así el caso común (clave viva, que dura
+// ~días) no paga ningún costo de red extra. El `_v1` permite invalidar todo el
+// formato de golpe si el esquema cambia (basta con bumpear el sufijo).
+const KEY_STORAGE_KEY = "allanime_key_material_v1";
 
 function safeJsonParse(value) {
   if (typeof value !== "string" || value.length === 0) {
@@ -164,20 +181,201 @@ function byteArrayToWordArray(bytes) {
   return CryptoJS.lib.WordArray.create(words, bytes.length);
 }
 
-function buildAaReqToken(queryHash) {
-  const ts = Math.floor(Date.now() / 300000) * 300000;
-  const payload = JSON.stringify({
-    v: 1,
-    ts,
-    epoch: AAREQ_EPOCH,
-    buildId: AAREQ_BUILD_ID,
-    qh: queryHash,
+function hexToByteArray(hex) {
+  return wordArrayToByteArray(CryptoJS.enc.Hex.parse(hex));
+}
+
+function base64ToByteArray(base64) {
+  return wordArrayToByteArray(CryptoJS.enc.Base64.parse(normalizeBase64(base64)));
+}
+
+// ─── Derivación + persistencia de clave AES (esquema mkissa) ────────────────
+// Estrategia lazy con 3 niveles: memoria (sesión) → AsyncStorage (sobrevive
+// cierres) → derivar del sitio (solo si no hay nada guardado o el server la
+// rechaza). Nunca se deriva de forma proactiva: el caso común reusa la clave
+// guardada sin tocar la red.
+let _keyMaterialCache = null; // { epoch, keyBytes } en memoria (sesión actual)
+let _loadPromise = null; // dedup de la carga inicial (storage → derivar)
+let _refreshPromise = null; // dedup de la re-derivación forzada (por stale)
+
+function byteArrayToHex(bytes) {
+  return bytes.map((byte) => (byte & 0xff).toString(16).padStart(2, "0")).join("");
+}
+
+// Valida que un objeto {epoch, keyHex} persistido tenga forma correcta antes de
+// confiar en él (protege contra storage corrupto o de una versión vieja).
+function isValidStoredKey(value) {
+  return (
+    value &&
+    Number.isFinite(value.epoch) &&
+    typeof value.keyHex === "string" &&
+    /^[0-9a-f]{64}$/i.test(value.keyHex)
+  );
+}
+
+async function loadKeyMaterialFromStorage() {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!isValidStoredKey(parsed)) {
+      // Formato inválido/corrupto: descartar y forzar re-derivación limpia.
+      await AsyncStorage.removeItem(KEY_STORAGE_KEY).catch(() => {});
+      return null;
+    }
+    return { epoch: parsed.epoch, keyBytes: hexToByteArray(parsed.keyHex) };
+  } catch (error) {
+    // Nunca romper por un fallo de lectura: se cae a derivar del sitio.
+    logger.warn(`⚠️ No se pudo leer la clave persistida: ${error.message}`);
+    return null;
+  }
+}
+
+async function persistKeyMaterial(material) {
+  // Falla de escritura NO debe romper la reproducción: la clave ya vive en
+  // memoria esta sesión; a lo sumo el próximo arranque en frío re-derivará.
+  try {
+    await AsyncStorage.setItem(
+      KEY_STORAGE_KEY,
+      JSON.stringify({ epoch: material.epoch, keyHex: byteArrayToHex(material.keyBytes) }),
+    );
+  } catch (error) {
+    logger.warn(`⚠️ No se pudo persistir la clave derivada: ${error.message}`);
+  }
+}
+
+async function fetchText(url) {
+  const response = await axios.get(url, {
+    headers: { "User-Agent": API_CONFIG.USER_AGENT },
+    responseType: "text",
+    transformResponse: [(data) => data],
+    timeout: 15000,
   });
+  return typeof response.data === "string"
+    ? response.data
+    : String(response.data ?? "");
+}
+
+async function deriveKeyMaterial() {
+  // 1. HTML del sitio → epoch + partB + URL del app.js del build.
+  const page = await fetchText(KEY_SITE);
+  const epochMatch = page.match(/"epoch":(\d+)/);
+  const partBMatch = page.match(/"partB":"([^"]+)"/);
+  const appMatch = page.match(
+    new RegExp(
+      `${KEY_CDN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/entry/app\\.[A-Za-z0-9_.-]+\\.js`,
+    ),
+  );
+  if (!epochMatch || !partBMatch || !appMatch) {
+    throw new Error("No se pudo extraer epoch/partB/app.js de mkissa.to");
+  }
+
+  const epoch = parseInt(epochMatch[1], 10);
+  const partBBytes = base64ToByteArray(partBMatch[1]);
+
+  // 2. app.js → primeros chunks → primer mask de 64 hex (32 bytes).
+  const appJs = await fetchText(appMatch[0]);
+  const chunkPaths = [...appJs.matchAll(/"\.\.\/chunks\/([A-Za-z0-9_.-]+\.js)"/g)]
+    .map((match) => match[1])
+    .slice(0, 5);
+
+  let maskHex = null;
+  for (const chunk of chunkPaths) {
+    const chunkJs = await fetchText(`${KEY_CDN}/chunks/${chunk}`);
+    const maskMatch = chunkJs.match(/[0-9a-f]{64}/);
+    if (maskMatch) {
+      maskHex = maskMatch[0];
+      break;
+    }
+  }
+  if (!maskHex) {
+    throw new Error("No se encontró mask de 64 hex en los chunks JS");
+  }
+
+  // 3. clave AES-256 = mask XOR partB (byte a byte).
+  const maskBytes = hexToByteArray(maskHex);
+  const keyBytes = maskBytes.map((byte, i) => byte ^ (partBBytes[i] || 0));
+
+  return { epoch, keyBytes };
+}
+
+async function loadOrDeriveKeyMaterial() {
+  // 1. Intentar la clave persistida (rápido, sobrevive cierres de app).
+  const stored = await loadKeyMaterialFromStorage();
+  if (stored) {
+    logger.debug(`🔑 Clave AES cargada de storage (epoch ${stored.epoch})`);
+    return stored;
+  }
+  // 2. No hay nada guardado (primera vez o storage limpio): derivar y guardar.
+  const derived = await deriveKeyMaterial();
+  await persistKeyMaterial(derived);
+  logger.debug(`🔑 Clave AES derivada y persistida (epoch ${derived.epoch})`);
+  return derived;
+}
+
+// Devuelve el material de clave sin tocar la red si ya lo tenemos (memoria o
+// storage). Solo deriva del sitio si no hay nada guardado. Deduplica llamadas
+// concurrentes (varios episodios abriéndose a la vez) para no derivar N veces.
+async function getKeyMaterial() {
+  if (_keyMaterialCache) return _keyMaterialCache;
+  // Si ya se está re-derivando por un stale, esperar ese resultado fresco.
+  if (_refreshPromise) return _refreshPromise;
+
+  if (!_loadPromise) {
+    _loadPromise = loadOrDeriveKeyMaterial()
+      .then((material) => {
+        _keyMaterialCache = material;
+        return material;
+      })
+      .finally(() => {
+        _loadPromise = null;
+      });
+  }
+
+  return _loadPromise;
+}
+
+// Fuerza derivar del sitio (ignora memoria y storage) y re-persiste. Se llama
+// cuando la API rechaza el token (AllAnime rotó la clave). Deduplica para que
+// un prefetch y una apertura simultánea no disparen dos derivaciones.
+async function refreshKeyMaterial() {
+  if (!_refreshPromise) {
+    _keyMaterialCache = null;
+    _refreshPromise = deriveKeyMaterial()
+      .then(async (material) => {
+        _keyMaterialCache = material;
+        await persistKeyMaterial(material);
+        logger.debug(`🔄 Clave AES re-derivada y persistida (epoch ${material.epoch})`);
+        return material;
+      })
+      .finally(() => {
+        _refreshPromise = null;
+      });
+  }
+
+  return _refreshPromise;
+}
+
+// Detecta la firma de la API cuando el token aaReq quedó desactualizado
+// (clave/epoch rotados) o ausente: errors[].extensions.code === "AA_CRYPTO_*".
+function isStaleCryptoResponse(data) {
+  const errors = data?.errors;
+  if (!Array.isArray(errors)) {
+    return false;
+  }
+  return errors.some((err) => {
+    const code = err?.extensions?.code || err?.message || "";
+    return typeof code === "string" && code.startsWith("AA_CRYPTO");
+  });
+}
+
+function buildAaReqToken(queryHash, epoch, keyBytes) {
+  const ts = Math.floor(Date.now() / 300000) * 300000;
+  const payload = JSON.stringify({ v: 1, ts, epoch, qh: queryHash });
 
   const ivBytes = wordArrayToByteArray(
-    CryptoJS.SHA256(`${AAREQ_EPOCH}:${AAREQ_BUILD_ID}:${queryHash}:${ts}`),
+    CryptoJS.SHA256(`${epoch}:${queryHash}:${ts}`),
   ).slice(0, 12);
-  const keyBytes = wordArrayToByteArray(CryptoJS.enc.Hex.parse(ALLANIME_KEY_HEX));
   const payloadBytes = wordArrayToByteArray(CryptoJS.enc.Utf8.parse(payload));
 
   const cipher = gcm(new Uint8Array(keyBytes), new Uint8Array(ivBytes));
@@ -191,107 +389,46 @@ function buildAaReqToken(queryHash) {
   return byteArrayToWordArray(Array.from(tokenBytes)).toString(CryptoJS.enc.Base64);
 }
 
-function incrementCounter(counterBytes) {
-  for (let i = counterBytes.length - 1; i >= 0; i--) {
-    counterBytes[i] = (counterBytes[i] + 1) & 0xff;
-    if (counterBytes[i] !== 0) {
-      break;
-    }
-  }
-}
-
-function decodePlaintextBytes(plainBytes) {
-  const plainWordArray = byteArrayToWordArray(plainBytes);
-
-  try {
-    const utf8 = CryptoJS.enc.Utf8.stringify(plainWordArray);
-    if (utf8 && utf8.length > 0) {
-      return utf8;
-    }
-  } catch {
-    // Fallback a Latin1 para payloads con bytes fuera de UTF-8 estricto.
-  }
-
-  return CryptoJS.enc.Latin1.stringify(plainWordArray);
-}
-
-function decryptCtrOpenSslCompat(cipherHex, keyHex, counterHex) {
-  const key = CryptoJS.enc.Hex.parse(keyHex);
-  const counter = wordArrayToByteArray(CryptoJS.enc.Hex.parse(counterHex));
-  const cipherBytes = wordArrayToByteArray(CryptoJS.enc.Hex.parse(cipherHex));
-  const plainBytes = [];
-
-  for (let offset = 0; offset < cipherBytes.length; offset += 16) {
-    const block = cipherBytes.slice(offset, offset + 16);
-
-    const keystream = CryptoJS.AES.encrypt(byteArrayToWordArray(counter), key, {
-      mode: CryptoJS.mode.ECB,
-      padding: CryptoJS.pad.NoPadding,
-    }).ciphertext;
-
-    const keystreamBytes = wordArrayToByteArray(keystream);
-    const plainBlock = block.map((byte, index) => byte ^ keystreamBytes[index]);
-    plainBytes.push(...plainBlock);
-
-    incrementCounter(counter);
-  }
-
-  return decodePlaintextBytes(plainBytes);
-}
-
-function decryptTobeparsedSourceUrls(blob) {
-  if (typeof blob !== "string" || blob.length === 0) {
+function decryptTobeparsedSourceUrls(blob, keyBytes) {
+  if (typeof blob !== "string" || blob.length === 0 || !keyBytes) {
     return [];
   }
 
   try {
-    const normalizedBlob = normalizeBase64(blob);
-    const payloadHex = CryptoJS.enc.Base64.parse(normalizedBlob).toString(
-      CryptoJS.enc.Hex,
-    );
-    if (!payloadHex || payloadHex.length < (1 + 12 + 16) * 2) {
+    // Formato mkissa: 1 byte de versión, 12 de IV, ciphertext, 16 de tag GCM.
+    const payloadBytes = base64ToByteArray(blob);
+    if (payloadBytes.length < 1 + 12 + 16) {
       return [];
     }
 
-    // Formato actual de AllAnime: 1 byte de prefijo, 12 bytes de IV, ciphertext, 16 bytes de tag.
-    const ivHex = payloadHex.slice(2, 26);
-    const counterHex = `${ivHex}00000002`;
-    const cipherHexEnd = payloadHex.length - 32;
-    const cipherHex = payloadHex.slice(26, cipherHexEnd);
+    const ivBytes = payloadBytes.slice(1, 13);
+    // @noble espera ciphertext y tag GCM juntos — así vienen ya tras el IV.
+    const ciphertextWithTag = payloadBytes.slice(13);
 
-    if (cipherHex.length <= 0 || cipherHex.length % 2 !== 0) {
+    const cipher = gcm(new Uint8Array(keyBytes), new Uint8Array(ivBytes));
+    const plainBytes = cipher.decrypt(new Uint8Array(ciphertextWithTag));
+    const plaintext = CryptoJS.enc.Utf8.stringify(
+      byteArrayToWordArray(Array.from(plainBytes)),
+    ).replace(/\0+$/g, "");
+
+    if (!plaintext) {
       return [];
     }
 
-    // AllAnime alterna entre su clave nueva y la vieja sin aviso — se
-    // prueban ambas y se usa la primera que produzca sourceUrls válidos.
-    for (const keyHex of ALLANIME_KEY_CANDIDATES) {
-      const plaintext = decryptCtrOpenSslCompat(
-        cipherHex,
-        keyHex,
-        counterHex,
-      ).replace(/\0+$/g, "");
-
-      if (!plaintext) continue;
-
-      const parsed = safeJsonParse(plaintext);
-
-      if (parsed) {
-        const parsedSourceUrls = extractSourceUrlsFromParsedPayload(parsed);
-        if (parsedSourceUrls.length > 0) {
-          return parsedSourceUrls;
-        }
-      }
-
-      const regexSourceUrls = extractSourceUrlsFromPlaintext(plaintext);
-      if (regexSourceUrls.length > 0) {
-        return regexSourceUrls;
+    const parsed = safeJsonParse(plaintext);
+    if (parsed) {
+      const parsedSourceUrls = extractSourceUrlsFromParsedPayload(parsed);
+      if (parsedSourceUrls.length > 0) {
+        return parsedSourceUrls;
       }
     }
 
-    logger.warn(
-      "⚠️ tobeparsed descifrado con ambas claves, pero sin sourceUrls parseables",
-    );
+    const regexSourceUrls = extractSourceUrlsFromPlaintext(plaintext);
+    if (regexSourceUrls.length > 0) {
+      return regexSourceUrls;
+    }
+
+    logger.warn("⚠️ tobeparsed descifrado pero sin sourceUrls parseables");
     return [];
   } catch (error) {
     logger.warn(`⚠️ Error decodificando tobeparsed: ${error.message}`);
@@ -609,28 +746,68 @@ class AnimeService {
       const queryHash =
         "f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0";
 
-      const response = await axios.get(`${API_CONFIG.BASE_URL}/api`, {
-        params: {
-          variables: JSON.stringify(variables),
-          extensions: JSON.stringify({
-            persistedQuery: { version: 1, sha256Hash: queryHash },
-            aaReq: buildAaReqToken(queryHash),
-          }),
-        },
-        // AllAnime valida Origin/Referer contra su dominio espejo desde el
-        // cambio de cifrado del 2026-07-07/08; allmanga.to ya no sirve aquí.
-        headers: {
-          ...API_CONFIG.getGetHeaders(),
-          Referer: "https://youtu-chan.com",
-          Origin: "https://youtu-chan.com",
-        },
-      });
+      const requestProviders = (keyMaterial) =>
+        axios.get(`${API_CONFIG.BASE_URL}/api`, {
+          params: {
+            variables: JSON.stringify(variables),
+            extensions: JSON.stringify({
+              persistedQuery: { version: 1, sha256Hash: queryHash },
+              aaReq: buildAaReqToken(
+                queryHash,
+                keyMaterial.epoch,
+                keyMaterial.keyBytes,
+              ),
+            }),
+          },
+          // La API valida Origin/Referer contra su dominio espejo (mkissa.to)
+          // desde la migración; allmanga.to/youtu-chan.com ya no sirven aquí.
+          headers: {
+            ...API_CONFIG.getGetHeaders(),
+            Referer: EPISODE_REFERER,
+            Origin: EPISODE_REFERER,
+          },
+        });
+
+      // Obtener la clave (memoria → storage → derivar). Si falla del todo
+      // (sitio caído, sin clave guardada), no reventar: devolver vacío para que
+      // el pipeline muestre "sin providers" y se pueda reintentar más tarde.
+      let keyMaterial;
+      try {
+        keyMaterial = await getKeyMaterial();
+      } catch (keyError) {
+        logger.error(`❌ No se pudo obtener la clave AES: ${keyError.message}`);
+        return [];
+      }
+
+      let response = await requestProviders(keyMaterial);
+
+      // Si la clave/epoch guardados quedaron viejos (AllAnime rotó), la API
+      // responde AA_CRYPTO_STALE/MISSING: re-derivar una vez, re-persistir y
+      // reintentar. Un solo reintento — si la clave fresca tampoco sirve, se
+      // devuelve vacío en vez de entrar en loop.
+      if (isStaleCryptoResponse(response.data)) {
+        logger.warn(
+          "🔄 aaReq rechazado (crypto stale); re-derivando clave y reintentando",
+        );
+        try {
+          keyMaterial = await refreshKeyMaterial();
+          response = await requestProviders(keyMaterial);
+        } catch (refreshError) {
+          logger.error(
+            `❌ Falló la re-derivación de la clave: ${refreshError.message}`,
+          );
+          return [];
+        }
+      }
 
       logger.debug("📥 getEpisodeUrl response status:", response.status);
 
-      const result = await this.parseEpisodeProviders(response.data);
+      const result = await this.parseEpisodeProviders(
+        response.data,
+        keyMaterial.keyBytes,
+      );
 
-      // Evita dejar al usuario bloqueado con resultados vacíos durante el TTL.
+      // Solo cachea resultados no vacíos, para no bloquear un refetch posterior.
       if (Array.isArray(result) && result.length > 0) {
         // Si supera el límite, eliminar la entrada más antigua (FIFO)
         if (_providerCache.size >= PROVIDER_CACHE_MAX) {
@@ -737,7 +914,7 @@ class AnimeService {
     return episodes.sort((a, b) => parseFloat(a) - parseFloat(b));
   }
 
-  static parseEpisodeProviders(data) {
+  static parseEpisodeProviders(data, keyBytes) {
     const payloadData = data?.data;
 
     if (!payloadData) {
@@ -755,7 +932,10 @@ class AnimeService {
 
     const tobeparsedBlob = findTobeparsedBlob(payloadData);
     if (tobeparsedBlob) {
-      const decodedSourceUrls = decryptTobeparsedSourceUrls(tobeparsedBlob);
+      const decodedSourceUrls = decryptTobeparsedSourceUrls(
+        tobeparsedBlob,
+        keyBytes,
+      );
       if (decodedSourceUrls.length > 0) {
         logger.debug(
           `✅ tobeparsed decodificado: ${decodedSourceUrls.length} providers`,

@@ -39,17 +39,41 @@ const EPISODE = getArg('episode') || DEFAULT_EPISODE;
 const AUTO_FIX = args.includes('--fix');
 
 // ─── Crypto (igual que AnimeService.js) ────────────────────────────────────
-// AllAnime rota su clave repetidamente y sin aviso — se prueban todas las
-// conocidas en cascada. Ver PR #1792 de pystardust/ani-cli para la más
-// reciente si esto vuelve a fallar.
-const ALLANIME_KEY_HEX_LATEST = 'e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0';
-const ALLANIME_KEY_HEX_PREV = 'cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359';
-const ALLANIME_KEY_HEX_ORIGINAL = CryptoJS.SHA256('Xot36i3lK3:v1').toString(CryptoJS.enc.Hex);
-const ALLANIME_KEY_CANDIDATES = [ALLANIME_KEY_HEX_LATEST, ALLANIME_KEY_HEX_PREV, ALLANIME_KEY_HEX_ORIGINAL];
-const ALLANIME_KEY_HEX = ALLANIME_KEY_HEX_LATEST; // usado solo para el token aaReq saliente
-const AAREQ_EPOCH = 6884;
-const AAREQ_BUILD_ID = '51';
-const EPISODE_REFERER = 'https://youtu-chan.com';
+//
+// HISTORIA (por si hay que entender de dónde viene esto o hacer rollback):
+//
+// 1) Hasta 2026-07-06: la API de episodio era una persisted query simple
+//    (solo el hash sha256, sin token) y el blob `tobeparsed` se descifraba
+//    con AES-256-CTR y clave fija SHA256("Xot36i3lK3:v1"). Referer allmanga.to.
+// 2) 2026-07-07/08: AllAnime añadió anti-scraping. La query pasó a exigir un
+//    token `aaReq` (AES-256-GCM de {v,ts,epoch,buildId,qh}, IV=SHA256(
+//    "epoch:buildId:qh:ts")[:12]) y empezó a ROTAR la clave AES sin aviso.
+//    Valores hardcodeados que fuimos persiguiendo (cada uno rompió y tocó
+//    /release manual): clave 22196fa6... → volvió a la vieja Xot36i3lK3 el
+//    07-12 → cf4777b5... el 07-17 → e661283a... el 07-20. epoch/buildId
+//    llegaron a ser 6884 / "51". Referer pasó a youtu-chan.com.
+// 3) 2026-07-22 (esquema ACTUAL): migración de allanime.day → mkissa.net.
+//    La clave dejó de hardcodearse: ahora se DERIVA en runtime del sitio
+//    (ver fetchKeys()). El `aaReq` perdió `buildId` (payload {v,ts,epoch,qh},
+//    IV=SHA256("epoch:qh:ts")[:12]) y el `tobeparsed` pasó de CTR a GCM.
+//    Referer pasó a mkissa.to. Espejo compatible con la migración de ani-cli
+//    4.15.0 (PR #1779 de pystardust/ani-cli).
+//
+// Si esto vuelve a fallar: mirar si cambió el ESQUEMA (no solo los valores).
+//   - AA_CRYPTO_STALE  → nuestra clave/epoch derivados quedaron viejos: la
+//     derivación debería re-hacerse sola; si persiste, cambió el sitio (ver
+//     KEY_SITE/KEY_CDN y los regex de fetchKeys).
+//   - AA_CRYPTO_MISSING → falta el token o el formato cambió (¿volvió buildId?
+//     ¿cambió el layout del token/IV?). Comparar con el ani-cli actual.
+//   - tobeparsed presente pero descifra a basura → cambió el cifrado de la
+//     RESPUESTA (¿volvió a CTR? ¿otra clave/derivación?).
+// La derivación vive en la migración de ani-cli — issue/PR reciente ahí.
+const KEY_SITE = 'https://mkissa.to';
+const KEY_CDN = 'https://cdn.mkissa.net/all/mk/_app/immutable';
+const EPISODE_REFERER = 'https://mkissa.to';
+// Último esquema hardcodeado conocido (2026-07-20), por si hace falta rollback
+// o comparar: clave e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0,
+// epoch 6884, buildId "51", referer youtu-chan.com, tobeparsed en AES-256-CTR.
 
 function wa2b(wa) {
   const b = [];
@@ -61,11 +85,48 @@ function b2wa(b) {
   for (let i = 0; i < b.length; i++) w[i >>> 2] = (w[i >>> 2] || 0) | ((b[i] & 0xff) << (24 - (i % 4) * 8));
   return CryptoJS.lib.WordArray.create(w, b.length);
 }
-function buildAaReqToken(queryHash) {
+function normB64(b64) {
+  const norm = String(b64).replace(/-/g, '+').replace(/_/g, '/').trim();
+  const rem = norm.length % 4;
+  return rem === 0 ? norm : norm + '='.repeat(4 - rem);
+}
+function hex2b(hex) { return wa2b(CryptoJS.enc.Hex.parse(hex)); }
+function b642b(b64) { return wa2b(CryptoJS.enc.Base64.parse(normB64(b64))); }
+
+// ─── Derivación de clave AES en runtime (esquema mkissa) ────────────────────
+// Espejo de deriveKeyMaterial() en src/services/AnimeService.js: baja el HTML
+// del sitio (epoch+partB), el app.js y sus chunks (mask de 64 hex) y calcula
+// clave = mask XOR partB. Devuelve { epoch, keyBytes }.
+async function fetchKeys() {
+  const page = (await axios.get(KEY_SITE, { headers: { 'User-Agent': USER_AGENT }, timeout: 15000, responseType: 'text', transformResponse: [(d) => d] })).data;
+  const epochMatch = page.match(/"epoch":(\d+)/);
+  const partBMatch = page.match(/"partB":"([^"]+)"/);
+  const appMatch = page.match(new RegExp(`${KEY_CDN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/entry/app\\.[A-Za-z0-9_.-]+\\.js`));
+  if (!epochMatch || !partBMatch || !appMatch) throw new Error('No se pudo extraer epoch/partB/app.js de mkissa.to');
+
+  const epoch = parseInt(epochMatch[1], 10);
+  const partBBytes = b642b(partBMatch[1]);
+
+  const appJs = (await axios.get(appMatch[0], { headers: { 'User-Agent': USER_AGENT }, timeout: 15000, responseType: 'text', transformResponse: [(d) => d] })).data;
+  const chunkPaths = [...appJs.matchAll(/"\.\.\/chunks\/([A-Za-z0-9_.-]+\.js)"/g)].map((m) => m[1]).slice(0, 5);
+
+  let maskHex = null;
+  for (const chunk of chunkPaths) {
+    const js = (await axios.get(`${KEY_CDN}/chunks/${chunk}`, { headers: { 'User-Agent': USER_AGENT }, timeout: 15000, responseType: 'text', transformResponse: [(d) => d] })).data;
+    const mm = js.match(/[0-9a-f]{64}/);
+    if (mm) { maskHex = mm[0]; break; }
+  }
+  if (!maskHex) throw new Error('No se encontró mask de 64 hex en los chunks JS');
+
+  const maskBytes = hex2b(maskHex);
+  const keyBytes = maskBytes.map((b, i) => b ^ (partBBytes[i] || 0));
+  return { epoch, keyBytes };
+}
+
+function buildAaReqToken(queryHash, epoch, keyBytes) {
   const ts = Math.floor(Date.now() / 300000) * 300000;
-  const payload = JSON.stringify({ v: 1, ts, epoch: AAREQ_EPOCH, buildId: AAREQ_BUILD_ID, qh: queryHash });
-  const ivBytes = wa2b(CryptoJS.SHA256(`${AAREQ_EPOCH}:${AAREQ_BUILD_ID}:${queryHash}:${ts}`)).slice(0, 12);
-  const keyBytes = wa2b(CryptoJS.enc.Hex.parse(ALLANIME_KEY_HEX));
+  const payload = JSON.stringify({ v: 1, ts, epoch, qh: queryHash });
+  const ivBytes = wa2b(CryptoJS.SHA256(`${epoch}:${queryHash}:${ts}`)).slice(0, 12);
   const payloadBytes = wa2b(CryptoJS.enc.Utf8.parse(payload));
   const cipher = gcm(new Uint8Array(keyBytes), new Uint8Array(ivBytes));
   const ciphertextWithTag = cipher.encrypt(new Uint8Array(payloadBytes));
@@ -76,47 +137,18 @@ function buildAaReqToken(queryHash) {
   return b2wa(Array.from(tokenBytes)).toString(CryptoJS.enc.Base64);
 }
 
-function incCtr(cb) {
-  for (let i = cb.length - 1; i >= 0; i--) { cb[i] = (cb[i] + 1) & 0xff; if (cb[i] !== 0) break; }
-}
-function decryptCtr(cipherHex, keyHex, counterHex) {
-  const key = CryptoJS.enc.Hex.parse(keyHex);
-  const ctr = wa2b(CryptoJS.enc.Hex.parse(counterHex));
-  const cb = wa2b(CryptoJS.enc.Hex.parse(cipherHex));
-  const pb = [];
-  for (let off = 0; off < cb.length; off += 16) {
-    const block = cb.slice(off, off + 16);
-    const ks = wa2b(CryptoJS.AES.encrypt(b2wa(ctr), key, { mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.NoPadding }).ciphertext);
-    pb.push(...block.map((x, i) => x ^ ks[i]));
-    incCtr(ctr);
-  }
-  const wa = b2wa(pb);
-  try { const s = CryptoJS.enc.Utf8.stringify(wa); if (s) return s; } catch {}
-  return CryptoJS.enc.Latin1.stringify(wa);
-}
-
-function decryptTobeparsed(blob) {
+function decryptTobeparsed(blob, keyBytes) {
   try {
-    const norm = blob.replace(/-/g, '+').replace(/_/g, '/').trim();
-    const padded = norm + '='.repeat((4 - (norm.length % 4)) % 4);
-    const hex = CryptoJS.enc.Base64.parse(padded).toString(CryptoJS.enc.Hex);
-    if (hex.length < 58) return null;
-    const iv = hex.slice(2, 26);
-    const cipher = hex.slice(26, hex.length - 32);
-    if (!cipher.length || cipher.length % 2 !== 0) return null;
-
-    // AllAnime alterna sin aviso entre la clave nueva y la vieja — probar ambas.
-    for (const keyHex of ALLANIME_KEY_CANDIDATES) {
-      const plain = decryptCtr(cipher, keyHex, `${iv}00000002`).replace(/\0+$/g, '');
-      if (!plain) continue;
-      try {
-        const parsed = JSON.parse(plain);
-        return parsed;
-      } catch {
-        // no era JSON con esta clave — probar la siguiente
-      }
-    }
-    return null;
+    // Formato mkissa: 1 byte de versión, 12 de IV, ciphertext, 16 de tag GCM.
+    const payloadBytes = b642b(blob);
+    if (payloadBytes.length < 1 + 12 + 16) return null;
+    const ivBytes = payloadBytes.slice(1, 13);
+    const ciphertextWithTag = payloadBytes.slice(13); // ct + tag juntos, como espera @noble
+    const cipher = gcm(new Uint8Array(keyBytes), new Uint8Array(ivBytes));
+    const plainBytes = cipher.decrypt(new Uint8Array(ciphertextWithTag));
+    const plain = CryptoJS.enc.Utf8.stringify(b2wa(Array.from(plainBytes))).replace(/\0+$/g, '');
+    if (!plain) return null;
+    try { return JSON.parse(plain); } catch { return null; }
   } catch { return null; }
 }
 
@@ -179,7 +211,7 @@ function suggestType(name, url) {
   return n.replace(/[^a-z0-9]/g, '');
 }
 
-function extractSourceUrls(data) {
+function extractSourceUrls(data, keyBytes) {
   const payload = data?.data;
   if (!payload) return { format: 'sin_data', sources: [] };
   if (Array.isArray(payload?.episode?.sourceUrls))
@@ -197,7 +229,7 @@ function extractSourceUrls(data) {
   const blob = findBlob(payload);
   if (!blob) return { format: 'desconocido', sources: [] };
 
-  const dec = decryptTobeparsed(blob);
+  const dec = decryptTobeparsed(blob, keyBytes);
   if (!dec) return { format: 'tobeparsed_decrypt_failed', decryptOk: false, sources: [] };
 
   let sources = [];
@@ -455,6 +487,16 @@ async function testProviders(showId, episode) {
   const mapping = readProviderMapping();
   console.log(`  Providers (${showId} ep ${episode}):`);
 
+  let keyMaterial;
+  try {
+    keyMaterial = await fetchKeys();
+    console.log(`    🔑 Clave derivada (epoch ${keyMaterial.epoch})`);
+  } catch (e) {
+    console.log(`    ❌ No se pudo derivar la clave desde ${KEY_SITE}: ${e.message}`);
+    console.log('    ⚠️  El esquema de derivación pudo cambiar — revisar KEY_SITE/KEY_CDN y fetchKeys()');
+    return { ok: false, deriveFailed: true };
+  }
+
   try {
     const res = await axios.get(`${API_BASE}/api`, {
       headers: { ...HEADERS_GET, Referer: EPISODE_REFERER, Origin: EPISODE_REFERER },
@@ -463,7 +505,7 @@ async function testProviders(showId, episode) {
         variables: JSON.stringify({ showId, translationType: 'sub', episodeString: episode }),
         extensions: JSON.stringify({
           persistedQuery: { version: 1, sha256Hash: HASH },
-          aaReq: buildAaReqToken(HASH),
+          aaReq: buildAaReqToken(HASH, keyMaterial.epoch, keyMaterial.keyBytes),
         }),
       },
     });
@@ -473,7 +515,15 @@ async function testProviders(showId, episode) {
       return { ok: false, hashValid: false };
     }
 
-    const { format, decryptOk, sources } = extractSourceUrls(res.data);
+    const cryptoErr = (res.data?.errors || []).find((x) =>
+      String(x?.extensions?.code || x?.message || '').startsWith('AA_CRYPTO'));
+    if (cryptoErr) {
+      const code = cryptoErr?.extensions?.code || cryptoErr?.message;
+      console.log(`    ❌ ${code} — el token aaReq fue rechazado (clave/epoch/esquema cambiaron)`);
+      return { ok: false, format: code, decryptFailed: code === 'AA_CRYPTO_STALE' };
+    }
+
+    const { format, decryptOk, sources } = extractSourceUrls(res.data, keyMaterial.keyBytes);
 
     if (format === 'tobeparsed_decrypt_failed') {
       console.log('    ❌ tobeparsed presente pero descifrado falló — clave AES puede haber cambiado');
