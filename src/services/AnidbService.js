@@ -226,8 +226,15 @@ class AnidbService {
     return {
       id: animeId,
       name: ld.name || null,
+      // `title` NO es redundante: isAnimeDataComplete() (animeDetailsUtils.js)
+      // exige `title` + `id`, y sin él la pantalla de detalle descarta la
+      // respuesta en silencio y nunca carga.
+      title: ld.name || null,
       englishName: ld.name || null,
       nativeName: ld.alternateName || null,
+      // AllAnime traía pageStatus (views, likes…). anidb no tiene nada de eso;
+      // la UI ya lo guarda con `details.stats && …`, así que null es seguro.
+      stats: null,
       description: ld.description || null,
       thumbnail: ld.image || null,
       // anidb no expone banner propio; se reusa el póster para no dejar hueco.
@@ -243,6 +250,8 @@ class AnidbService {
           : null,
       airedStart: data?.year ? { year: parseInt(data.year, 10) } : null,
       episodeCount: episodes.length || null,
+      // `episodes` tiene que ser un NÚMERO: generateEpisodesList() itera 1..N.
+      episodes: episodes.length,
       availableEpisodes: { sub: episodes.length, dub: episodes.length },
       episodeDuration: data?.duration ? parseInt(data.duration, 10) * 60000 : null,
     };

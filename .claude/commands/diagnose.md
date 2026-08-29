@@ -347,3 +347,20 @@ Si da 403 sin Referer y 200 con Referer, el fix es agregar `headers` al `source`
 - Si el usuario reporta que un anime específico falla, pasar su showId como argumento
 - Cuando aparezca un provider nuevo en `UNMAPPED_PROVIDERS`, sondearlo manualmente (Paso 5) antes de asumir que es iframe
 - El hash de persisted query y la clave AES son los dos puntos más frágiles — si cambian, todo el sistema de providers falla
+
+---
+
+## Antes de compilar un APK: `check-source-contract.js`
+
+```bash
+node .claude/check-source-contract.js
+```
+
+Verifica que `src/services/source/index.js` devuelva las formas exactas que las pantallas esperan. Corre sin device, sin red y sin el bundle de RN (mockea el puente de Cloudflare y `fetch`).
+
+**Por qué existe:** al migrar a anidb se rompieron 3 contratos de una sola vez y todos se vieron recién en el celular:
+1. `searchAnimeAdvanced` devolvía un array, pero Search hace `const { results, pagination } = await ...` → *"Cannot read property 'length' of undefined"*.
+2. `getAnimeDetails` no traía `title`, que `isAnimeDataComplete()` exige → la pantalla de detalle descartaba la respuesta **en silencio**.
+3. `details.episodes` tiene que ser un **número** (`generateEpisodesList` itera `1..N`), no un objeto.
+
+Lección: al cambiar de fuente no alcanza con que compile. Hay que verificar **la forma de retorno de cada método contra su consumidor real** — varios de estos fallan sin excepción visible.

@@ -39,6 +39,8 @@ function toCard(item) {
   return {
     id: item.id,
     name: item.title,
+    // algunos consumidores (isAnimeDataComplete) miran `title`, no `name`
+    title: item.title,
     englishName: item.title,
     nativeName: null,
     thumbnail: item.thumbnail,
@@ -130,8 +132,11 @@ export const AnimeSource = {
   },
 
   /**
-   * Búsqueda con filtros. Mapea los filtros que ya usaba la pantalla Search a
-   * los parámetros de /browse de anidb.
+   * Búsqueda con filtros.
+   *
+   * ⚠️ CONTRATO: devuelve `{ results, pagination }`, NO un array. La pantalla
+   * Search hace `const { results, pagination } = await ...` y si esto devuelve
+   * un array revienta con "Cannot read property 'length' of undefined".
    */
   async searchAnimeAdvanced(filters = {}, limit = 26, page = 1) {
     const params = { query: filters.query || filters.search || "", page };
@@ -139,7 +144,15 @@ export const AnimeSource = {
     if (filters.type) params.type = filters.type;
     if (filters.season) params.season = String(filters.season).toLowerCase();
     if (filters.year) params.year = filters.year;
-    if (filters.sort) params.sort = filters.sort;
+
+    // La UI ofrece "Top" y "Recent" (ver SORT_OPTIONS en AdvancedSearchFilters).
+    const sortBy = filters.sortBy || filters.sort;
+    if (sortBy) {
+      params.sort =
+        ANIDB_SORTS[sortBy] ||
+        { Top: ANIDB_SORTS.top, Recent: ANIDB_SORTS.newest }[sortBy] ||
+        undefined;
+    }
 
     if (filters.status) {
       params.status = /airing|emision|emisión/i.test(filters.status)
@@ -155,7 +168,24 @@ export const AnimeSource = {
       if (entry) params.genre = entry[0];
     }
 
-    return toCards(await AnidbService.browse(params)).slice(0, limit);
+    const all = toCards(await AnidbService.browse(params));
+    const results = all.slice(0, limit);
+
+    // anidb no expone un total de resultados. Se devuelve una COTA INFERIOR:
+    // si vino una página llena, sabemos que hay al menos una más, y con eso la
+    // pantalla habilita el "cargar más". No es el total real y no se muestra
+    // como tal — solo alimenta la condición de paginación del hook.
+    const isFullPage = all.length >= limit;
+    return {
+      results,
+      pagination: {
+        total: isFullPage ? page * limit + 1 : (page - 1) * limit + results.length,
+        currentResults: results.length,
+        hasNextPage: isFullPage,
+        currentPage: page,
+        totalPages: isFullPage ? page + 1 : page,
+      },
+    };
   },
 
   async getAnimeDetails(animeId) {
