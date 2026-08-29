@@ -98,18 +98,30 @@ export function unregisterBridge() {
   }
 }
 
+// Momento en que se montó el WebView, para medir cuánto tarda el challenge.
+let _warmStartedAt = null;
+
+export function markBridgeWarmStart() {
+  _warmStartedAt = Date.now();
+}
+
 // El WebView avisa que la página ya pasó el challenge y puede ejecutar fetch.
 export function markBridgeReady() {
   if (_isReady) return;
   _isReady = true;
-  logger.debug("✅ Bridge listo (challenge de Cloudflare superado)");
+  const elapsed = _warmStartedAt ? `${Date.now() - _warmStartedAt}ms` : "?";
+  logger.debug(`✅ Bridge listo en ${elapsed} (challenge de Cloudflare superado)`);
   _readyResolve?.();
 }
 
 // El WebView avisa que la carga falló (sin red, challenge interactivo, etc.).
+// Se rearma la promesa para que un reintento posterior pueda resolverla: si no,
+// cualquier request que llegue después quedaría rechazado para siempre.
 export function markBridgeFailed(reason) {
   logger.warn(`⚠️ Bridge falló: ${reason}`);
-  if (!_isReady) _readyReject?.(new Error(reason));
+  if (_isReady) return;
+  _readyReject?.(new Error(reason));
+  resetReadyPromise();
 }
 
 // Cada mensaje que llega del WebView resuelve el request correspondiente.

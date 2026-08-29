@@ -13,6 +13,7 @@ import {
   StyleSheet,
 } from "react-native";
 import Video from "react-native-video";
+import PlayerSettingsSheet from "./PlayerSettingsSheet";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { playerStyles as styles } from "../styles/PlayerStyles";
@@ -57,6 +58,14 @@ const formatTime = (secs) => {
 
 const VideoPlayer = ({
   currentLink,
+  // Ajustes dentro del player (calidad y audio)
+  videoLinks = [],
+  selectedQuality = 0,
+  onSelectQuality,
+  audioOptions = [],
+  selectedAudio = "sub",
+  onSelectAudio,
+  audioLoading = false,
   videoRef,
   isPlaying,
   isFullscreen,
@@ -87,6 +96,7 @@ const VideoPlayer = ({
   const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [settingsVisible, setSettingsVisible] = useState(false);
   const [seekBarWidth, setSeekBarWidth] = useState(1);
   const [videoAspectRatio, setVideoAspectRatio] = useState(16 / 9);
   const hideTimerRef = useRef(null);
@@ -678,6 +688,15 @@ const VideoPlayer = ({
                   </Text>
                 </View>
 
+                {/* Ajustes: calidad y audio, dentro del player */}
+                <TouchableOpacity
+                  onPress={() => setSettingsVisible(true)}
+                  hitSlop={12}
+                  style={{ marginRight: 18 }}
+                >
+                  <MaterialIcons name="settings" size={24} color="#ffffff" />
+                </TouchableOpacity>
+
                 <CastButton
                   style={{
                     width: 26,
@@ -851,6 +870,24 @@ const VideoPlayer = ({
           <Text style={styles.placeholderText}>No hay enlaces disponibles</Text>
         </View>
       )}
+
+      <PlayerSettingsSheet
+        visible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        videoLinks={videoLinks}
+        selectedQuality={selectedQuality}
+        onSelectQuality={(index) => {
+          onSelectQuality?.(index);
+          setSettingsVisible(false);
+        }}
+        audioOptions={audioOptions}
+        selectedAudio={selectedAudio}
+        onSelectAudio={(value) => {
+          onSelectAudio?.(value);
+          setSettingsVisible(false);
+        }}
+        audioLoading={audioLoading}
+      />
     </View>
   );
 };

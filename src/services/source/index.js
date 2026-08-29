@@ -269,6 +269,35 @@ export const AnimeSource = {
     return infoMap;
   },
 
+  /**
+   * Audios disponibles para un episodio (para el selector sub/dub del player).
+   * anidb devuelve `jpn` (subtitulado) y/o `eng` (doblado); si solo hay uno,
+   * la UI oculta el selector.
+   * @returns {Promise<Array<{value:"sub"|"dub", label:string, code:string}>>}
+   */
+  async getEpisodeAudioOptions(animeId, episodeNumber) {
+    try {
+      const episodes = await AnidbService.getEpisodes(animeId);
+      const episode = episodes.find(
+        (ep) => String(ep.number) === String(episodeNumber),
+      );
+      if (!episode) return [];
+
+      const languages = await AnidbService.getEpisodeLanguages(episode.id);
+      const options = [];
+      if (languages.some((l) => l.code === "jpn")) {
+        options.push({ value: "sub", label: "Sub (japonés)", code: "jpn" });
+      }
+      if (languages.some((l) => l.code === "eng")) {
+        options.push({ value: "dub", label: "Dub (inglés)", code: "eng" });
+      }
+      return options;
+    } catch (error) {
+      logger.warn(`⚠️ audios del episodio: ${error.message}`);
+      return [];
+    }
+  },
+
   async getOptimizedVideoLinks(animeId, episodeString, translationType = "sub") {
     const links = await AnidbService.getVideoLinks(
       animeId,

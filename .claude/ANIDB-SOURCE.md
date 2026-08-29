@@ -263,6 +263,54 @@ Si algún día estos campos vienen `null`, es que cambió el layout: mirar acá 
 > `Loading stream…`): lo pinta el JS llamando a la API de episodios. Por eso
 > hay que usar `/api/frontend/anime/{id}/episodes`, no scrapear la página.
 
+### 4.7-bis Seasons y Relations (dentro de la página de detalle)
+
+Ambas secciones vienen **completas en el HTML estático**. No hace falta pedir
+nada extra ni ejecutar JS.
+
+**Seasons** — carrusel con las otras entradas de la MISMA serie:
+```html
+<h3>Seasons</h3> <p class="text-xs text-muted">6 entries in this series</p>
+<a href=".../anime/mushoku-tensei-jobless-reincarnation-3564" title="...">
+  <img src="https://cdn.xlsbox.com/poster/small/.../3564.jpg">
+```
+De cada tarjeta se saca `id`, `name`, `thumbnail`, el **año** (texto suelto) y
+`current: true` en la que se está viendo (viene marcada con la palabra **"Now"**).
+
+**Relations** — usa **Alpine.js**, pero solo para *alternar visibilidad*:
+```html
+<div x-data="{ activeRel: 'Prequel' }">
+  <button @click="activeRel = 'Prequel'">Prequel</button>
+  <button @click="activeRel = 'Sequel'">Sequel</button>
+  <div x-show="activeRel === 'Prequel'"> <div class="anime-grid"> <a ...> </div> </div>
+  <div x-show="activeRel === 'Sequel'">  ... </div>
+</div>
+```
+⚠️ **Todos los grupos ya están en el documento** — Alpine solo muestra/oculta.
+Por eso el parser recorre los `[x-show]` y saca el tipo del
+`activeRel === 'X'`. **No hay que ejecutar Alpine ni simular clics.**
+
+Tipos observados (el objeto solo trae los que existan para ese anime):
+`Prequel`, `Sequel`, `Side Story`, `Spin-off`, `Summary`, `Character`,
+`Alternative Version`, `Other`.
+
+Verificado sobre 4 páginas:
+
+| anime | seasons | relations |
+|---|---|---|
+| Mushoku Tensei S2 P2 | 6 (▶ 2024) | Prequel, Sequel |
+| Slime S4 | 5 (▶ 2026) | Prequel |
+| Slime (1ª) | 5 (▶ 2018) | Sequel, Side Story, Spin-off, Summary, Character, Other |
+| One Piece | **0** (no tiene sección) | Side Story, Summary, **Alternative Version**, Character, Other |
+
+Ojo con One Piece: **no todos los animes tienen sección Seasons** — el parser
+devuelve `[]` y no rompe.
+
+En el servicio quedan como:
+- `details.seasons` → `[{id, name, thumbnail, year, current}]`
+- `details.relations` → `{ "Prequel": [...], "Sequel": [...] }`
+- `details.relatedShows` → lista plana (compatibilidad con la forma de AllAnime)
+
 ### 4.8 Calendario — `GET /api/frontend/schedule?date=YYYY-MM-DD&tz=<IANA>`
 JSON, sin scrapear. **`date` y `tz` son la clave**: sin `date` solo devuelve
 hoy; sin `tz` los días se cortan en UTC. Ambos verificados sobre 7 días.

@@ -217,6 +217,75 @@ class AnidbService {
           var s = d.querySelector('script[type="application/ld+json"]');
           if (s) { try { ld = JSON.parse(s.textContent); } catch (e) {} }
 
+          // ── Seasons y Relations ──────────────────────────────────────
+          // Ambas secciones están COMPLETAS en el HTML estático. Relations usa
+          // Alpine.js (x-data="{ activeRel: 'Prequel' }" + bloques x-show), que
+          // solo alterna visibilidad: no hace falta ejecutar Alpine ni pedir
+          // nada extra, todos los grupos ya vienen en el documento.
+          function parseCard(a) {
+            var href = a.getAttribute('href') || '';
+            var mm = href.match(/\\/anime\\/([a-z0-9-]+-\\d+)/i);
+            if (!mm) return null;
+            var im = a.querySelector('img');
+            return {
+              id: mm[1],
+              name: a.getAttribute('title') || (im && im.getAttribute('alt')) || '',
+              thumbnail: (im && im.getAttribute('src')) || null
+            };
+          }
+
+          // Sube desde el <h3> hasta el contenedor que ya tiene enlaces.
+          function findSection(re) {
+            var hs = d.querySelectorAll('h1,h2,h3,h4');
+            for (var i = 0; i < hs.length; i++) {
+              if (!re.test((hs[i].textContent || '').trim())) continue;
+              var c = hs[i].parentElement;
+              for (var k = 0; k < 4 && c; k++) {
+                if (c.querySelectorAll('a[href*="/anime/"]').length > 0) return c;
+                c = c.parentElement;
+              }
+            }
+            return null;
+          }
+
+          var seasons = [];
+          var secS = findSection(/^Seasons/i);
+          if (secS) {
+            var sa = secS.querySelectorAll('a[href*="/anime/"]');
+            var seenS = {};
+            for (var i2 = 0; i2 < sa.length; i2++) {
+              var cs = parseCard(sa[i2]);
+              if (!cs || seenS[cs.id]) continue;
+              seenS[cs.id] = 1;
+              var st = (sa[i2].textContent || '').replace(/\\s+/g, ' ');
+              var yy = st.match(/\\b(?:19|20)\\d{2}\\b/);
+              cs.year = yy ? parseInt(yy[0], 10) : null;
+              cs.current = /\\bNow\\b/.test(st); // la entrada actual va marcada "Now"
+              seasons.push(cs);
+            }
+          }
+
+          var relations = {};
+          var secR = findSection(/^Relations/i);
+          if (secR) {
+            var blocks = secR.querySelectorAll('[x-show]');
+            for (var i3 = 0; i3 < blocks.length; i3++) {
+              var expr = blocks[i3].getAttribute('x-show') || '';
+              var mk = expr.match(/activeRel\\s*===\\s*['"]([^'"]+)['"]/);
+              if (!mk) continue;
+              var kind = mk[1];
+              var ra = blocks[i3].querySelectorAll('a[href*="/anime/"]');
+              var items = [], seenR = {};
+              for (var j3 = 0; j3 < ra.length; j3++) {
+                var cr = parseCard(ra[j3]);
+                if (!cr || seenR[cr.id]) continue;
+                seenR[cr.id] = 1;
+                items.push(cr);
+              }
+              if (items.length) relations[kind] = (relations[kind] || []).concat(items);
+            }
+          }
+
           var main = d.querySelector('main') || d.body;
           var kill = main.querySelectorAll('nav, footer, header');
           for (var i = 0; i < kill.length; i++) kill[i].parentNode.removeChild(kill[i]);
@@ -224,6 +293,8 @@ class AnidbService {
 
           return {
             ld: ld,
+            seasons: seasons,
+            relations: relations,
             type:     (txt.match(/\\b(TV|Movie|ONA|OVA|Special|Music)\\b/) || [])[1] || null,
             status:   (txt.match(/(Currently Airing|Finished Airing)/) || [])[1] || null,
             score:    (txt.match(/(\\d\\.\\d{1,2})/) || [])[1] || null,
@@ -267,6 +338,17 @@ class AnidbService {
       episodeCount: episodes.length || null,
       // `episodes` tiene que ser un NÚMERO: generateEpisodesList() itera 1..N.
       episodes: episodes.length,
+
+      // Otras entradas de la MISMA serie (temporadas/partes), en orden, con el
+      // año y `current: true` en la que se está viendo. Vacío si el anime no
+      // pertenece a una serie (ej. One Piece no tiene sección Seasons).
+      seasons: Array.isArray(data?.seasons) ? data.seasons : [],
+      // Animes relacionados agrupados por tipo. Tipos observados:
+      // Prequel, Sequel, Side Story, Spin-off, Summary, Character,
+      // Alternative Version, Other. El objeto solo trae los que existen.
+      relations: data?.relations || {},
+      // Compatibilidad con la forma de AllAnime, que era una lista plana.
+      relatedShows: Object.values(data?.relations || {}).flat(),
       availableEpisodes: { sub: episodes.length, dub: episodes.length },
       episodeDuration: data?.duration ? parseInt(data.duration, 10) * 60000 : null,
     };

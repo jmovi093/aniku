@@ -4,6 +4,7 @@ import { WebView } from "react-native-webview";
 import {
   handleBridgeMessage,
   markBridgeFailed,
+  markBridgeWarmStart,
   registerBridge,
   unregisterBridge,
 } from "../../utils/cloudflareBridge";
@@ -16,6 +17,9 @@ const logger = createLogger("cf-bridge");
 // hacen desde esta página, así que son same-origin para anidb.app (van con sus
 // cookies y, lo importante, con el TLS del navegador).
 const BRIDGE_ORIGIN = "https://anidb.app/";
+
+// Reintentos de carga del WebView antes de rendirse.
+const MAX_RETRIES = 3;
 
 // Se inyecta en CADA carga (incluida la página de challenge). Cuando detecta
 // que ya NO es el challenge, avisa que el puente está listo.
@@ -51,16 +55,25 @@ const INJECTED = `
 /**
  * WebView oculto que permite hacer requests a orígenes con Cloudflare.
  *
- * Montarlo UNA vez cerca de la raíz de la app. No renderiza nada visible y no
- * carga el WebView hasta que algún servicio llama a `ensureBridgeReady()`
- * (montaje lazy), así que no cuesta nada si nunca se usa la fuente anidb.
+ * Montarlo UNA vez cerca de la raíz de la app. No renderiza nada visible.
+ * Por defecto PRECALIENTA: se monta al arrancar y resuelve el challenge de
+ * Cloudflare mientras el usuario todavía está viendo el splash/Home, así ese
+ * costo no se le suma a la primera pantalla que pida datos. Con
+ * `warmUp={false}` vuelve al montaje lazy (solo al primer `ensureBridgeReady`).
  *
  * Ver `src/utils/cloudflareBridge.js` para el porqué de todo esto y para el
  * plan B (curl-impersonate nativo, como hace ani-cli) si el WebView fallara.
+ *
+ * @param {boolean} warmUp  si es true (default) el WebView se monta y resuelve
+ *   el challenge apenas arranca la app, sin esperar al primer request. Así los
+ *   2-5 segundos del challenge se solapan con el arranque en vez de sumarse a
+ *   la primera pantalla que pida datos.
  */
-export function CloudflareBridge() {
+export function CloudflareBridge({ warmUp = true }) {
   const webRef = useRef(null);
-  const [active, setActive] = useState(false);
+  const [active, setActive] = useState(warmUp);
+  const [reloadKey, setReloadKey] = useState(0);
+  const retriesRef = useRef(0);
 
   const postToWebView = useCallback((js) => {
     webRef.current?.injectJavaScript(js);
@@ -75,8 +88,30 @@ export function CloudflareBridge() {
 
   useEffect(() => {
     registerBridge({ postToWebView, activate });
+    if (warmUp) {
+      logger.debug("🔥 Precalentando el puente al arrancar");
+      markBridgeWarmStart();
+    }
     return () => unregisterBridge();
-  }, [postToWebView, activate]);
+  }, [postToWebView, activate, warmUp]);
+
+  // Si la carga falla (sin red al arrancar, challenge que no resolvió), se
+  // reintenta remontando el WebView. Sin esto el puente quedaría muerto toda
+  // la sesión y ninguna pantalla cargaría hasta reiniciar la app.
+  const handleFailure = useCallback((reason) => {
+    markBridgeFailed(reason);
+    if (retriesRef.current >= MAX_RETRIES) {
+      logger.warn(`⚠️ Puente agotó ${MAX_RETRIES} reintentos`);
+      return;
+    }
+    retriesRef.current += 1;
+    const delay = 3000 * retriesRef.current;
+    logger.debug(`🔁 Reintentando el puente en ${delay}ms (intento ${retriesRef.current})`);
+    setTimeout(() => {
+      markBridgeWarmStart();
+      setReloadKey((k) => k + 1);
+    }, delay);
+  }, []);
 
   if (!active) return null;
 
@@ -86,9 +121,22 @@ export function CloudflareBridge() {
         ref={webRef}
         source={{ uri: BRIDGE_ORIGIN }}
         injectedJavaScript={INJECTED}
-        onMessage={(event) => handleBridgeMessage(event.nativeEvent.data)}
+        onMessage={(event) => {
+          const raw = event.nativeEvent.data;
+          // Un 'failed' del JS inyectado (challenge que no resolvió) tiene que
+          // pasar por el reintento, no solo marcarse.
+          try {
+            const msg = JSON.parse(raw);
+            if (msg?.type === "failed") {
+              handleFailure(msg.reason || "challenge no resuelto");
+              return;
+            }
+          } catch {}
+          handleBridgeMessage(raw);
+        }}
+        key={reloadKey}
         onError={(event) =>
-          markBridgeFailed(event.nativeEvent?.description || "error de carga")
+          handleFailure(event.nativeEvent?.description || "error de carga")
         }
         onHttpError={(event) =>
           logger.warn(`HTTP ${event.nativeEvent?.statusCode} en el puente`)

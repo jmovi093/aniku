@@ -170,6 +170,18 @@ function check(name, cond, detail) {
   }
   check('.stats presente (la UI lo guarda con &&)', 'stats' in d);
 
+  console.log('\nAnimeSource.getAnimeDetails · seasons y relations:');
+  check('.seasons es array', Array.isArray(d.seasons));
+  check('.relations es objeto',
+    d.relations && typeof d.relations === 'object' && !Array.isArray(d.relations));
+  check('.relatedShows es array (compat AllAnime)', Array.isArray(d.relatedShows));
+
+  console.log('\nAnimeSource.getEpisodeAudioOptions (selector sub/dub):');
+  const audio = await AnimeSource.getEpisodeAudioOptions('slime-5231', '1');
+  check('es array', Array.isArray(audio));
+  check('cada opción tiene value+label',
+    audio.every((o) => o.value && o.label), JSON.stringify(audio));
+
   console.log('\nAnimeSource.getEpisodesList (array de strings):');
   const eps = await AnimeSource.getEpisodesList('slime-5231');
   check('es array', Array.isArray(eps));

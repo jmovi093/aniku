@@ -1,10 +1,10 @@
 // screens/Player/PlayerScreen.js
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Image, BackHandler } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { VideoPlayer, QualitySelector } from "./components";
+import { VideoPlayer } from "./components";
 import { useVideoPlayer, useEpisodeManager } from "./hooks";
 import { playerStyles as styles } from "./styles/PlayerStyles";
 import { AnimeSource as AnimeService } from "../../services/source";
@@ -43,7 +43,9 @@ const PlayerScreen = ({ route, navigation }) => {
       const freshLinks = await AnimeService.getOptimizedVideoLinks(
         route.params.animeId,
         currentEpisodeNumber.toString(),
-        "sub",
+        // Respetar el audio elegido; antes forzaba "sub" y al fallar un
+        // provider en dub se volvía a japonés sin avisar.
+        selectedAudio,
         { excludeProviders: [failedProvider] },
       );
 
@@ -112,6 +114,58 @@ const PlayerScreen = ({ route, navigation }) => {
     }
   };
 
+  // ── Audio (sub/dub) ────────────────────────────────────────────────────
+  // anidb expone jpn (sub) y/o eng (dub) por episodio. Cambiar de audio no es
+  // cambiar de pista dentro del mismo stream: son streams distintos, así que
+  // hay que volver a pedir los enlaces y recargar preservando la posición.
+  const [selectedAudio, setSelectedAudio] = useState(
+    route.params?.translationType || "sub",
+  );
+  const [audioOptions, setAudioOptions] = useState([]);
+  const [audioLoading, setAudioLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    AnimeService.getEpisodeAudioOptions(
+      route.params.animeId,
+      currentEpisodeNumber,
+    )
+      .then((opts) => {
+        if (!cancelled) setAudioOptions(opts);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [route.params.animeId, currentEpisodeNumber]);
+
+  const handleSelectAudio = async (value) => {
+    if (value === selectedAudio || audioLoading) return;
+    const resumeAt = currentTime;
+    setAudioLoading(true);
+    try {
+      const links = await AnimeService.getOptimizedVideoLinks(
+        route.params.animeId,
+        String(currentEpisodeNumber),
+        value,
+      );
+      if (links && links.length > 0) {
+        setSelectedAudio(value);
+        setCurrentVideoLinks(links);
+        setSelectedQuality(
+          pickPreferredQualityIndex(links, appConfig.video.defaultQuality),
+        );
+        if (resumeAt > 0) setTimeout(() => seekTo(resumeAt), 800);
+      } else {
+        logger.warn(`⚠️ Sin enlaces para audio ${value}`);
+      }
+    } catch (error) {
+      logger.error(`❌ No se pudo cambiar el audio: ${error.message}`);
+    } finally {
+      setAudioLoading(false);
+    }
+  };
+
   const handleNextEpisode = async () => {
     resetForNewEpisode(parseInt(currentEpisodeNumber) + 1);
     await baseHandleNextEpisode(
@@ -145,6 +199,13 @@ const PlayerScreen = ({ route, navigation }) => {
     <View style={styles.container}>
       <VideoPlayer
         currentLink={currentLink}
+        videoLinks={currentVideoLinks}
+        selectedQuality={selectedQuality}
+        onSelectQuality={handleSelectQuality}
+        audioOptions={audioOptions}
+        selectedAudio={selectedAudio}
+        onSelectAudio={handleSelectAudio}
+        audioLoading={audioLoading}
         videoRef={videoRef}
         isPlaying={isPlaying}
         isFullscreen={isFullscreen}
@@ -182,12 +243,6 @@ const PlayerScreen = ({ route, navigation }) => {
             </Text>
             <Text style={styles.episode}>Episodio {currentEpisodeNumber}</Text>
           </View>
-
-          <QualitySelector
-            currentVideoLinks={currentVideoLinks}
-            selectedQuality={selectedQuality}
-            onSelectQuality={handleSelectQuality}
-          />
 
           {/* Siguiente episodio — solo si existe o aún no se sabe */}
           {hasNextEpisode !== false && (
