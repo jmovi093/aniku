@@ -2,6 +2,19 @@
 // Configuración centralizada de la aplicación
 
 export const appConfig = {
+  // 🌐 Fuente de anime
+  //
+  // "mkissa" → AllAnime/mkissa (api.allanime.day + api.mkissa.net). Es la
+  //   fuente histórica y la que está en producción. Requiere la cripto del
+  //   esquema bootstrap (ver src/services/AnimeService.js).
+  // "anidb"  → anidb.app, la misma fuente que adoptó ani-cli v5 (PR #1830).
+  //   Su API está detrás de Cloudflare, así que la metadata pasa por un
+  //   WebView oculto (src/utils/cloudflareBridge.js); el video va directo.
+  //
+  // Se deja en "mkissa" hasta validar el WebView en device. Para probar la
+  // fuente nueva basta cambiar esto — ver .claude/ANIDB-SOURCE.md.
+  source: "mkissa",
+
   // 🎨 Tema por defecto
   theme: {
     name: "dark",

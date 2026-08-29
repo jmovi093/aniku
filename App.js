@@ -20,6 +20,11 @@ import ListDetailScreen from "./src/screens/Watching/ListDetailScreen";
 // Componente de alertas personalizadas
 import CustomAlertComponent from "./src/components/CustomAlert";
 
+// WebView oculto que permite hablar con orígenes detrás de Cloudflare
+// (fuente anidb). No renderiza nada y NO carga el WebView hasta que algún
+// servicio lo pide — ver src/utils/cloudflareBridge.js.
+import { CloudflareBridge } from "./src/components/CloudflareBridge";
+
 // Servicios
 import DownloadService from "./src/services/DownloadService";
 import HybridHistoryService from "./src/services/HybridHistoryService";
@@ -146,6 +151,10 @@ export default function App() {
 
       {/* Componente de alertas globales */}
       <CustomAlertComponent />
+
+      {/* Puente para orígenes con Cloudflare (fuente anidb). Invisible y lazy:
+          no carga nada hasta que un servicio llama a ensureBridgeReady(). */}
+      <CloudflareBridge />
     </>
   );
 }
