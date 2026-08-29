@@ -223,6 +223,24 @@ export const DetailsSource = {
 const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const DAY_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
+// YYYY-MM-DD en hora LOCAL. No usar toISOString(): eso pasa a UTC y puede
+// correr el día (de noche en América daría el día siguiente).
+function toLocalDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Zona del dispositivo, para que anidb corte los días donde el usuario los ve.
+function deviceTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 export const ScheduleSource = {
   /** Últimos 7 días hasta hoy — lógica de fechas pura, igual que antes. */
   getAvailableDays() {
@@ -244,36 +262,38 @@ export const ScheduleSource = {
   },
 
   /**
-   * anidb expone /api/frontend/schedule con las emisiones de la ventana
-   * actual. Se agrupa por día de la semana a partir de `airing_at`.
-   * OJO: la ventana que devuelve es acotada (~1 día), así que los días sin
-   * datos van a venir vacíos — ver el hueco en .claude/ANIDB-SOURCE.md.
+   * anidb devuelve el calendario POR DÍA:
+   *   /api/frontend/schedule?date=YYYY-MM-DD&tz=<IANA>
+   * Así que se resuelve la fecha concreta de ese día de la semana (dentro de la
+   * ventana de 7 días que muestra la pantalla) y se pide ese día puntual.
    */
   async getAnimesForWeekday(dayName) {
     const target = DAY_NAMES.indexOf(String(dayName).toLowerCase());
     if (target === -1) return [];
 
-    const schedules = await AnidbService.getSchedule();
-    return schedules
-      .filter((s) => {
-        const d = new Date(s.airing_at);
-        return !Number.isNaN(d.getTime()) && d.getDay() === target;
-      })
-      .map((s) => {
-        const idMatch = String(s.anime_url || "").match(/\/anime\/([a-z0-9-]+-\d+)/i);
-        return {
-          id: idMatch ? idMatch[1] : String(s.anime_id),
-          name: s.anime_title,
-          englishName: s.anime_title,
-          thumbnail: s.anime_poster,
-          episodes: 0,
-          description: null,
-          score: null,
-          type: "TV",
-          airingAt: s.airing_at,
-          episodeName: s.episode_name,
-        };
-      });
+    const day = this.getAvailableDays().find((d) => d.dayIndex === target);
+    if (!day) return [];
+
+    const schedules = await AnidbService.getSchedule(
+      toLocalDateString(day.date),
+      deviceTimeZone(),
+    );
+
+    return schedules.map((s) => {
+      const idMatch = String(s.anime_url || "").match(/\/anime\/([a-z0-9-]+-\d+)/i);
+      return {
+        id: idMatch ? idMatch[1] : String(s.anime_id),
+        name: s.anime_title,
+        englishName: s.anime_title,
+        thumbnail: s.anime_poster,
+        episodes: 0,
+        description: null,
+        score: null,
+        type: "TV",
+        airingAt: s.airing_at,
+        episodeName: s.episode_name,
+      };
+    });
   },
 };
 

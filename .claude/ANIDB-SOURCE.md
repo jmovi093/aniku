@@ -51,18 +51,19 @@ ejecutaron dentro de la página real:
 `type=TV&year=2026&season=fall` da 0 resultados, pero **no es un bug**: esa
 temporada todavía no tiene datos cargados.
 
-**La fuente en producción sigue siendo mkissa** (arreglada el mismo día, ver
-`AnimeService.js`). anidb queda listo pero apagado hasta probar el WebView en
-un Android real.
+**anidb es la fuente activa.** mkissa/AllAnime quedó desconectado pero sigue en
+el repo como referencia (ver `AnimeService.js`, que tiene la cripto arreglada
+del esquema bootstrap por si hay que volver).
 
-### Cómo activarlo para probar
-1. `appConfig.source = "anidb"` en `src/config/index.js`.
-2. Cablear los screens que hoy llaman a `AnimeService`/`CatalogService` para
-   que usen `AnidbService` cuando `source === "anidb"` (ver §5, es lo único que
-   queda sin hacer).
-3. `npm run android` y mirar los logs con tag `cf-bridge` y `anidb`.
+### Cómo volver a mkissa
+Reconectar los servicios viejos en `src/services/source/index.js` y poner
+`appConfig.source = "mkissa"`. Los archivos de AllAnime **no se borraron**
+justamente para eso. La rama `deprecated/allmanga` tiene el estado previo a
+la migración.
 
-Qué esperar en los logs si va bien:
+### Qué mirar en los logs (tags `cf-bridge` y `anidb`)
+
+Si va bien:
 ```
 [cf-bridge] 🌐 Activando WebView puente (lazy)
 [cf-bridge] ✅ Bridge listo (challenge de Cloudflare superado)
@@ -262,8 +263,9 @@ Si algún día estos campos vienen `null`, es que cambió el layout: mirar acá 
 > `Loading stream…`): lo pinta el JS llamando a la API de episodios. Por eso
 > hay que usar `/api/frontend/anime/{id}/episodes`, no scrapear la página.
 
-### 4.8 Calendario — `GET /api/frontend/schedule`
-JSON, sin scrapear:
+### 4.8 Calendario — `GET /api/frontend/schedule?date=YYYY-MM-DD&tz=<IANA>`
+JSON, sin scrapear. **`date` y `tz` son la clave**: sin `date` solo devuelve
+hoy; sin `tz` los días se cortan en UTC. Ambos verificados sobre 7 días.
 ```json
 {"schedules":[{
   "id":1423, "episode_name":"Episode 22",
@@ -290,7 +292,8 @@ Solo existen: `/api/frontend/anime/{id}/episodes`,
 
 ## 4bis. 🕳️ HUECOS CONOCIDOS (lo que anidb NO da)
 
-Esto es lo que se pierde respecto a AllAnime. Los tres están verificados.
+Esto es lo que se pierde respecto a AllAnime. Josue confirmó que (a) y (b) no
+son problema. El (c) quedó resuelto.
 
 ### a) Títulos de episodio — NO EXISTEN
 `/api/frontend/anime/{id}/episodes` devuelve solo
@@ -305,22 +308,29 @@ No hay imagen por episodio en ningún endpoint ni en el HTML. Solo hay póster
 del anime. AllAnime sí tenía (vía `wp.youtube-anime.com`).
 → `getEpisodeInfos` devuelve `thumbnail: null`; la UI lo maneja.
 
-### c) Calendario: solo ~1 día de ventana
-`/api/frontend/schedule` devuelve **21 entradas repartidas en ~2 días** y
-**ignora todos los parámetros** que se le pasen. Probado y descartado:
-```
-?date=YYYY-MM-DD   ?from=&to=   ?start=&end=
-?days=7            ?week=1      ?range=week     → los 6 devuelven lo mismo
-/api/frontend/schedule/YYYY-MM-DD                → 404
-```
-→ La pantalla de calendario muestra los 7 días, pero **solo el día actual (y
-algo del siguiente) va a tener contenido**; el resto sale vacío.
+### c) ~~Calendario: solo ~1 día~~ → ✅ RESUELTO
+El endpoint **sí** acepta fecha; hay que pasarle `date` **y** `tz`:
 
-**🙋 Acá me hace falta tu ayuda, Josue:** si podés abrir
-`https://anidb.app/schedule` en el navegador con el DevTools en la pestaña
-Network y navegar entre días de la semana, copiame la request que dispara.
-Con eso mapeo el calendario completo. Es el único hueco que me bloquea de
-verdad — los otros dos (a y b) simplemente no existen en la fuente.
+```
+GET /api/frontend/schedule?date=YYYY-MM-DD&tz=America%2FCosta_Rica
+```
+
+⚠️ **Lección de método (para no repetir el error):** en la primera pasada
+conclui que "ignora todos los parámetros" porque probé `?date=` con **la fecha
+de HOY** — que obviamente devuelve lo mismo que sin parámetros. Nunca probé
+otra fecha. **Al validar un filtro, usar siempre un valor que DEBA dar un
+resultado distinto**, si no la prueba no prueba nada.
+
+Verificado pidiendo los 7 días: 10, 12, 8, 12, 12, 10 y 22 emisiones
+respectivamente — **86 en la semana**, todos los días con contenido.
+
+`tz` importa: define dónde se cortan los días. Sin él el corte es UTC y las
+emisiones de madrugada se corren de día. La app usa
+`Intl.DateTimeFormat().resolvedOptions().timeZone`.
+
+Y la fecha se arma en hora **local** (`toLocalDateString`), no con
+`toISOString()`, que pasa a UTC y de noche en América devolvería el día
+siguiente.
 
 ---
 
@@ -331,7 +341,7 @@ verdad — los otros dos (a y b) simplemente no existen en la fuente.
 - [x] Normalización de cards: `{id,title,thumbnail}` → forma de AllAnime
       (`{id,name,englishName,thumbnail,episodes,type,score,…}`).
 - [x] Detalle, lista de episodios, video y calendario.
-- [ ] **Calendario completo** — bloqueado por el hueco (c) de arriba.
+- [x] **Calendario completo** — 7 días vía `?date=&tz=`.
 - [ ] **Ids incompatibles entre fuentes** ⚠️ ver abajo.
 
 ### ⚠️ Ids: historial, listas y descargas

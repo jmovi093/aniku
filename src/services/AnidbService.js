@@ -260,12 +260,26 @@ class AnidbService {
   }
 
   /**
-   * Calendario de emisión. anidb tiene endpoint JSON propio, no hay que
-   * scrapear: /api/frontend/schedule
+   * Calendario de emisión de UN día. Endpoint JSON propio, no hay que scrapear.
+   *
+   *   GET /api/frontend/schedule?date=YYYY-MM-DD&tz=<IANA>
+   *
+   * `date` es obligatorio para pedir un día distinto de hoy; `tz` define dónde
+   * se cortan los días (sin él, el corte es UTC y se corren emisiones de
+   * madrugada al día anterior/siguiente).
+   *
+   * @param {string} date  YYYY-MM-DD en hora LOCAL del usuario
+   * @param {string} tz    zona IANA, ej. "America/Costa_Rica"
    * @returns {Promise<Array<{id,episode_name,airing_at,anime_id,anime_title,anime_poster,anime_url}>>}
    */
-  static async getSchedule() {
-    const data = await cfFetchJson(`${BASE}/api/frontend/schedule`);
+  static async getSchedule(date = null, tz = null) {
+    const qs = new URLSearchParams();
+    if (date) qs.set("date", date);
+    if (tz) qs.set("tz", tz);
+    const query = qs.toString();
+    const data = await cfFetchJson(
+      `${BASE}/api/frontend/schedule${query ? `?${query}` : ""}`,
+    );
     return Array.isArray(data?.schedules) ? data.schedules : [];
   }
 
