@@ -22,8 +22,10 @@ Si ani-cli **da un giro de 180° y se cambia a otro proveedor** (como cuando v5,
 **Todo lo demás se arregla solo, sin preguntar.** Cambios *dentro* de la misma fuente — que rote la clave, que cambie el hash de la query, que se mude el host de un endpoint, que cambie el mecanismo de cripto, que aparezca un header nuevo obligatorio — **son trabajo normal: arreglarlo y reportarlo al final**, no interrumpir.
 
 ### Estado de fuentes hoy
-- **mkissa** (`AnimeService.js`) → activa en producción, `appConfig.source = "mkissa"`. Para su cripto ani-cli **ya no sirve** de referencia (v5 dejó AllAnime); la fuente de verdad es el bundle del sitio + `extract-mkissa-keys.js`.
-- **anidb.app** (`AnidbService.js`) → la fuente de ani-cli v5. Implementada y con parsers validados, pero **apagada** hasta probar en device. Todo en **`.claude/ANIDB-SOURCE.md`** (endpoints, taxonomía, por qué necesita WebView y el plan B con curl-impersonate).
+- **anidb.app** (`AnidbService.js` + `services/source/index.js`) → **FUENTE ACTIVA**, `appConfig.source = "anidb"`. Es la misma que usa ani-cli v5. Todo en **`.claude/ANIDB-SOURCE.md`** (endpoints, taxonomía, por qué necesita WebView y el plan B con curl-impersonate).
+- **mkissa/AllAnime** (`AnimeService.js`, `CatalogService.js`, `ScheduleService.js`, `AnimeDetailsService.js`) → 🔌 **desconectado**. Los archivos siguen en el repo **a propósito, como referencia — no borrarlos**; nadie los importa. Su cripto quedó arreglada (esquema bootstrap) por si hay que volver: se reconecta en `services/source/index.js`. La rama `deprecated/allmanga` tiene el estado previo a la migración.
+
+> ⚠️ Buena parte de esta skill (secciones de cripto, `extract-mkissa-keys.js`, `diagnose-api.js`) aplica a **mkissa**, que hoy NO está en uso. Sigue siendo válida para el día que haya que volver, pero si el problema es de la app HOY, mirar primero `.claude/ANIDB-SOURCE.md`.
 
 ## Uso
 ```
