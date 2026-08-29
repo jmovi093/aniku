@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: "Publicar el APK como prerelease de prueba (no toca la versión de la app)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -27,6 +32,26 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      # Caché de Gradle. IMPORTANTE (por si genera dudas a futuro):
+      # solo se cachea ~/.gradle, que son las DEPENDENCIAS descargadas y el
+      # wrapper — NO se cachea android/app/build (los artefactos compilados).
+      # Además android/ no está en git: lo regenera `expo prebuild` en cada run.
+      # Consecuencias:
+      #   · nunca se reutiliza un compilado viejo → no puede "funcionar y de
+      #     repente dejar de funcionar" por caché rancia;
+      #   · si la caché se borra o vence, el build solo tarda más (re-descarga);
+      #   · Gradle valida checksums de lo que restaura, si algo no cuadra lo baja.
+      # Para invalidarla a mano: Actions → Caches, o `gh cache delete <key>`.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json', 'app.json', 'patches/**') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm ci
@@ -69,4 +94,28 @@ jobs:
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
+          files: android/app/build/outputs/apk/release/*.apk
+
+      # Build de prueba: se dispara a mano desde cualquier rama y publica un
+      # PRERELEASE con tag propio (test-*). NO toca package.json ni app.json,
+      # no mueve la versión de la app y GitHub no lo marca como "Latest".
+      # Sirve para instalar el APK desde el celular sin estar en la compu.
+      - name: Publicar prerelease de prueba
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-${{ github.run_number }}
+          name: "🧪 Test build #${{ github.run_number }} — ${{ github.ref_name }}"
+          prerelease: true
+          body: |
+            Build de prueba automático — **no es un release de la app**.
+            No altera la versión ni aparece como "Latest release".
+
+            | | |
+            |---|---|
+            | Rama | `${{ github.ref_name }}` |
+            | Commit | `${{ github.sha }}` |
+            | Run | #${{ github.run_number }} |
+
+            Descargar el `.apk` de acá abajo e instalarlo directo en el celular.
           files: android/app/build/outputs/apk/release/*.apk

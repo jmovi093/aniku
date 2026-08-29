@@ -2,27 +2,28 @@
 
 Diagnostica la integración con AllAnime, detecta qué cambió y aplica los fixes que pueda automáticamente.
 
-## 🛑 REGLA CERO — PARAR Y AVISAR ANTES DE SEGUIR
+## 🧭 ani-cli es NUESTRA GUÍA para cualquier problema de fuente
 
-Si durante el diagnóstico aparece un **cambio estructural** (no una rotación de valores), **frenar y decírselo a Josue ANTES de investigar/arreglar nada más**. No gastar el turno entero en un fix que quizá quede descartado por una decisión de arquitectura que solo él puede tomar.
+Regla de fondo: **ante cualquier problema con la fuente de donde se saca el anime, lo primero es mirar qué está haciendo `pystardust/ani-cli`.** Ellos van adelante y reaccionan rápido. Clon local en `C:\xampp\htdocs\ani-cli\ani-cli` — hacerle **`git pull` SIEMPRE** antes de sacar conclusiones (el clon se queda viejo y eso ya llevó a conclusiones equivocadas una vez).
 
-Cuentan como cambio estructural, entre otros:
-- La **fuente upstream de referencia cambió de proveedor o murió** (ej.: `pystardust/ani-cli` v5 abandonó AllAnime y se pasó a `anidb.app`, PR #1830 — `grep -c allanime ani-cli` en master da 0).
-- El dominio/host principal de la API se mudó o quedó deprecado.
-- Cambió el **mecanismo** de auth/cripto, no sus valores (ej.: de scrapear el HTML a un endpoint bootstrap con HMAC).
-- Aparece una barrera nueva que la app no puede sortear con `fetch` (Cloudflare/JA3, captcha, login obligatorio).
-- El fix implicaría hardcodear algo que antes se derivaba solo, o al revés.
+Cómo leerlos rápido:
+```bash
+cd /c/xampp/htdocs/ani-cli/ani-cli && git pull
+grep -n -E '_base|_api|_refr|_cdn|https?://' ani-cli   # a qué host le pegan hoy
+git log --oneline -15                                   # qué cambiaron último
+```
 
-**Formato del aviso (corto, antes de seguir):** qué cambió · qué implica para Aniku · qué opciones hay · qué recomendás. Después esperar su decisión.
+## 🛑 LO ÚNICO QUE REQUIERE AVISAR ANTES: que ani-cli cambie DE FUENTE
 
-Rotaciones normales de valores (mask/buildId/hash nuevos) **no** requieren avisar: esas se arreglan solas con el extractor y se reportan al final.
+Si ani-cli **da un giro de 180° y se cambia a otro proveedor** (como cuando v5, PR #1830, abandonó AllAnime y se pasó a `anidb.app`), **frenar y avisarle a Josue antes de seguir**. Eso es una decisión de arquitectura, no un fix.
 
-### ani-cli: qué es y qué no es como referencia
-`pystardust/ani-cli` **sigue siendo la referencia de FUENTE** — cuando ellos cambian de dónde sacan el anime, hay que mirarlo y evaluarlo. Lo que ya **no** sirve es usarlos para la cripto de AllAnime/mkissa (v5 abandonó AllAnime). El clon local está en `C:\xampp\htdocs\ani-cli\ani-cli`; hacerle `git pull` antes de sacar conclusiones.
+**Formato del aviso (corto):** qué cambió · qué implica para Aniku · qué opciones hay · qué recomendás.
 
-Estado de fuentes hoy:
-- **mkissa** (`AnimeService.js`) → activa en producción, `appConfig.source = "mkissa"`.
-- **anidb.app** (`AnidbService.js`) → la fuente de ani-cli v5. Implementada y con parsers validados, pero **apagada** hasta probar en device. Todo documentado en **`.claude/ANIDB-SOURCE.md`** (endpoints, taxonomía, por qué necesita WebView, y el plan B con curl-impersonate).
+**Todo lo demás se arregla solo, sin preguntar.** Cambios *dentro* de la misma fuente — que rote la clave, que cambie el hash de la query, que se mude el host de un endpoint, que cambie el mecanismo de cripto, que aparezca un header nuevo obligatorio — **son trabajo normal: arreglarlo y reportarlo al final**, no interrumpir.
+
+### Estado de fuentes hoy
+- **mkissa** (`AnimeService.js`) → activa en producción, `appConfig.source = "mkissa"`. Para su cripto ani-cli **ya no sirve** de referencia (v5 dejó AllAnime); la fuente de verdad es el bundle del sitio + `extract-mkissa-keys.js`.
+- **anidb.app** (`AnidbService.js`) → la fuente de ani-cli v5. Implementada y con parsers validados, pero **apagada** hasta probar en device. Todo en **`.claude/ANIDB-SOURCE.md`** (endpoints, taxonomía, por qué necesita WebView y el plan B con curl-impersonate).
 
 ## Uso
 ```

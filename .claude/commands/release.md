@@ -155,3 +155,34 @@ Mostrar resumen:
 - `versionCode` debe ser siempre mayor al anterior en Google Play — este comando lo incrementa en 1 por release
 - Los commits de estilo `fix(build):` o `feat(ui):` siguen contando como fix/feat respectivamente
 - Asegurarse de que `gh release create` **no** use `--draft` para que el workflow se dispare
+
+---
+
+## 🧪 Builds de prueba (NO usan este comando)
+
+Para probar un cambio en el celular **sin** hacer un release de verdad — sin
+tocar `package.json`/`app.json`, sin mover la versión y sin aparecer como
+"Latest release":
+
+```bash
+# Compila la rama que quieras y publica un prerelease con tag test-<n>
+gh workflow run release-apk.yml --ref <rama>
+
+gh run watch                      # seguirlo en vivo (~15-25 min)
+gh release list --limit 5         # ver el prerelease publicado
+```
+
+El workflow tiene un input `publish_prerelease` (default `true`). Si se pone en
+`false`, el APK queda solo como *artifact* del run en vez de publicarse.
+
+Diferencias con un release real:
+| | `/release` | Build de prueba |
+|---|---|---|
+| Toca `package.json` / `versionCode` | sí | **no** |
+| Tag | `v1.2.5` | `test-<run_number>` |
+| Marcado "Latest" | sí | **no** (es prerelease) |
+| Se dispara por | publicar el release | `workflow_dispatch` a mano |
+
+⚠️ El repo es **público**, así que el prerelease también lo es. Si alguna vez
+hace falta un build realmente privado, hay que publicarlo en un repo privado
+aparte (los *artifacts* de Actions tampoco son privados en un repo público).
