@@ -4,7 +4,7 @@ import { createLogger } from "../../../utils/logger";
 // Hook para gestión de datos del Home
 
 import { useState, useEffect } from "react";
-import CatalogService from "../../../services/CatalogService";
+import { CatalogSource as CatalogService } from "../../../services/source";
 
 const useHomeData = () => {
   // Estados para cada sección

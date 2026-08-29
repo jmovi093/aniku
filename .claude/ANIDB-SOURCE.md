@@ -15,10 +15,24 @@ cuando abandonó AllAnime. `grep -c allanime ani-cli` en su master da **0**.
 |---|---|
 | `src/utils/cloudflareBridge.js` | ✅ implementado — fetch/eval dentro de un WebView oculto |
 | `src/components/CloudflareBridge/` | ✅ implementado — WebView 0×0, lazy, montado en `App.js` |
-| `src/services/AnidbService.js` | ✅ implementado — browse/filtros/episodios/video |
-| `appConfig.source` | ⚙️ en `"mkissa"` — anidb NO está activo todavía |
+| `src/services/AnidbService.js` | ✅ browse/filtros/detalle/episodios/schedule/video |
+| `src/services/source/index.js` | ✅ **adaptador** — las pantallas importan de acá |
+| `appConfig.source` | ✅ **`"anidb"` — FUENTE ACTIVA** |
+| AllAnime | 🔌 **desconectado** — sus servicios siguen en el repo como referencia, nadie los importa |
 | Parsers | ✅ **validados ejecutando el código real del servicio** en un Chrome que pasó Cloudflare |
 | Validación en device | ❌ **pendiente** — es el único paso que falta |
+
+### Cómo está cableado
+```
+pantallas/hooks
+   └─ import { AnimeSource as AnimeService } from "services/source"
+      └─ services/source/index.js   ← acá se decide la fuente
+         └─ AnidbService  →  cloudflareBridge (WebView)  →  anidb.app
+                          →  fetch directo               →  hls.anidb.app
+```
+AllAnime (`AnimeService.js`, `CatalogService.js`, `ScheduleService.js`,
+`AnimeDetailsService.js`) **no está importado por nadie**. Para volver a él hay
+que reconectarlo en `services/source/index.js` — no borrar esos archivos.
 
 ### Resultado de la validación de parsers (2026-08-29)
 Se extrajeron las expresiones tal cual están en `AnidbService.js` y se
@@ -224,25 +238,112 @@ https://hls.anidb.app/stream/.../1080p/index.m3u8
 ```
 Verificado: da **1080p / 720p / 360p** y los segmentos responden **206**.
 
-### 4.7 Otras rutas sin mapear todavía
-`/home` (portada con secciones), `/schedule` (calendario, `<h1>Airing Schedule</h1>`),
-`/themes`, `/az`, `/demographics`, `/studios`. Si hace falta reemplazar
-`ScheduleService`, empezar por `/schedule`.
+### 4.7 Detalle de anime — `GET /anime/{slug-id}`
+Se combinan dos cosas de la MISMA página porque ninguna alcanza sola:
+
+**a) JSON-LD** (`<script type="application/ld+json">`) — lo estructurado y estable:
+```json
+{
+  "@type": "TVSeries",
+  "name": "That Time I Got Reincarnated as a Slime Season 2",
+  "alternateName": "Tensei shitara Slime Datta Ken 2nd Season",
+  "description": "Taking a break from his time as a teacher…",
+  "image": "https://cdn.xlsbox.com/poster/small/1782735600/5231.jpg",
+  "url": "https://anidb.app/anime/…-5231",
+  "genre": ["Action", "Fantasy", "Comedy"]
+}
+```
+
+**b) Texto del `<main>`** — lo que el JSON-LD NO trae (esto es lo frágil):
+`type`, `status`, `score`, `Winter 2021`, `23m`, `Studio: 8bit`, rating.
+Si algún día estos campos vienen `null`, es que cambió el layout: mirar acá primero.
+
+> El listado de episodios **no** está en el HTML (`No episodes available` +
+> `Loading stream…`): lo pinta el JS llamando a la API de episodios. Por eso
+> hay que usar `/api/frontend/anime/{id}/episodes`, no scrapear la página.
+
+### 4.8 Calendario — `GET /api/frontend/schedule`
+JSON, sin scrapear:
+```json
+{"schedules":[{
+  "id":1423, "episode_name":"Episode 22",
+  "airing_at":"2026-08-29T00:26:00+00:00",
+  "anime_id":4429, "anime_title":"RILAKKUMA",
+  "anime_poster":"https://cdn.xlsbox.com/poster/small/1782735600/4429.jpg",
+  "anime_url":"https://anidb.app/anime/rilakkuma-4429"
+}]}
+```
+
+### 4.9 Endpoints que NO existen (probados, dan 404)
+```
+/api/frontend/anime/{id}          /api/frontend/anime/{id}/info
+/api/frontend/anime/{id}/seasons  /api/frontend/home
+/api/frontend/genres              /api/frontend/browse
+```
+Solo existen: `/api/frontend/anime/{id}/episodes`,
+`/api/frontend/episode/{id}/languages` y `/api/frontend/schedule`.
+
+### 4.10 Rutas sin mapear
+`/home`, `/themes`, `/az`, `/demographics`, `/studios`.
 
 ---
 
-## 5. Lo que falta para poder activarlo
+## 4bis. 🕳️ HUECOS CONOCIDOS (lo que anidb NO da)
 
-Solo el cableado de UI — la fuente en sí está completa:
+Esto es lo que se pierde respecto a AllAnime. Los tres están verificados.
 
-- [ ] Adaptador que, según `appConfig.source`, mande los screens a
-      `AnidbService` en vez de `AnimeService`/`CatalogService`.
-- [ ] Mapear el shape de `AnidbService.browse()` (`{id,title,thumbnail}`) al que
-      esperan las cards de Home/Search (hoy vienen de AllAnime con
-      `_id/name/englishName/thumbnail/availableEpisodes`).
-- [ ] `/schedule` para `ScheduleService`.
-- [ ] Historial/descargas guardan `showId` de AllAnime; si se cambia de fuente,
-      los ids **no son compatibles** — hace falta migración o namespacing.
+### a) Títulos de episodio — NO EXISTEN
+`/api/frontend/anime/{id}/episodes` devuelve solo
+`{id, number, number2, filler}`. No hay campo de título. En la web el usuario
+ve "Episode 1", "Episode 2"… El `episode_name` del schedule también es genérico
+("Episode 22"). AllAnime sí tenía `notes` con el título real.
+→ La UI ya trata `notes` como opcional, así que no rompe: la lista queda con
+números y el badge de *filler* (que AllAnime **no** tenía, así que se gana eso).
+
+### b) Thumbnails de episodio — NO EXISTEN
+No hay imagen por episodio en ningún endpoint ni en el HTML. Solo hay póster
+del anime. AllAnime sí tenía (vía `wp.youtube-anime.com`).
+→ `getEpisodeInfos` devuelve `thumbnail: null`; la UI lo maneja.
+
+### c) Calendario: solo ~1 día de ventana
+`/api/frontend/schedule` devuelve **21 entradas repartidas en ~2 días** y
+**ignora todos los parámetros** que se le pasen. Probado y descartado:
+```
+?date=YYYY-MM-DD   ?from=&to=   ?start=&end=
+?days=7            ?week=1      ?range=week     → los 6 devuelven lo mismo
+/api/frontend/schedule/YYYY-MM-DD                → 404
+```
+→ La pantalla de calendario muestra los 7 días, pero **solo el día actual (y
+algo del siguiente) va a tener contenido**; el resto sale vacío.
+
+**🙋 Acá me hace falta tu ayuda, Josue:** si podés abrir
+`https://anidb.app/schedule` en el navegador con el DevTools en la pestaña
+Network y navegar entre días de la semana, copiame la request que dispara.
+Con eso mapeo el calendario completo. Es el único hueco que me bloquea de
+verdad — los otros dos (a y b) simplemente no existen en la fuente.
+
+---
+
+## 5. Estado del cableado
+
+- [x] Adaptador `services/source/index.js` con la misma firma que los servicios
+      viejos (las pantallas solo cambiaron la línea de `import`).
+- [x] Normalización de cards: `{id,title,thumbnail}` → forma de AllAnime
+      (`{id,name,englishName,thumbnail,episodes,type,score,…}`).
+- [x] Detalle, lista de episodios, video y calendario.
+- [ ] **Calendario completo** — bloqueado por el hueco (c) de arriba.
+- [ ] **Ids incompatibles entre fuentes** ⚠️ ver abajo.
+
+### ⚠️ Ids: historial, listas y descargas
+```
+AllAnime:  srGrP23qJnjsHrRYD
+anidb:     that-time-i-got-reincarnated-as-a-slime-season-2-5231
+```
+Lo guardado con AllAnime **no resuelve** contra anidb. No se borra nada, pero
+esas entradas quedan "muertas" mientras anidb sea la fuente. Si se decide que
+convivan, hay que namespacear los ids (`mkissa:xxx` / `anidb:xxx`) en
+`HistoryService`/`ListsService`/`DownloadService`. **No implementado**: se dejó
+así a propósito para esta prueba, porque el objetivo era validar la fuente.
 
 ---
 

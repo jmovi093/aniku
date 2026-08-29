@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Animated } from "react-native";
-import AnimeService from "../../../services/AnimeService";
-import AnimeDetailsService from "../../../services/AnimeDetailsService";
+import { AnimeSource as AnimeService } from "../../../services/source";
+import { DetailsSource as AnimeDetailsService } from "../../../services/source";
 import VideoService from "../../../services/VideoService";
 import DownloadService from "../../../services/DownloadService";
 import { CustomAlert } from "../../CustomAlert";

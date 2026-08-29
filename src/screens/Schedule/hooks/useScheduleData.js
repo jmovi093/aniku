@@ -2,7 +2,7 @@
 // Hook para gestión de datos de horarios
 
 import { useState, useEffect } from "react";
-import ScheduleService from "../../../services/ScheduleService";
+import { ScheduleSource as ScheduleService } from "../../../services/source";
 import { createLogger } from "../../../utils/logger";
 
 const logger = createLogger("app");

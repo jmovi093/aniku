@@ -181,6 +181,95 @@ class AnidbService {
   }
 
   /**
+   * Detalle de un anime.
+   *
+   * Se combinan dos fuentes de la misma página porque ninguna alcanza sola:
+   *  - **JSON-LD** (`<script type="application/ld+json">`): name, alternateName,
+   *    description, image, genre[]. Es lo estructurado y estable.
+   *  - **Texto del <main>**: type, status, score, temporada+año, duración,
+   *    estudio y rating, que NO están en el JSON-LD. Esto es más frágil: si un
+   *    día vienen null, revisar acá primero (cambió el layout del sitio).
+   */
+  static async getAnimeDetails(animeId) {
+    const url = `${BASE}/anime/${animeId}`;
+    const data = await cfEval(`
+      fetch(${JSON.stringify(url)})
+        .then(function(r){ return r.text(); })
+        .then(function(h){
+          var d = new DOMParser().parseFromString(h, 'text/html');
+
+          var ld = null;
+          var s = d.querySelector('script[type="application/ld+json"]');
+          if (s) { try { ld = JSON.parse(s.textContent); } catch (e) {} }
+
+          var main = d.querySelector('main') || d.body;
+          var kill = main.querySelectorAll('nav, footer, header');
+          for (var i = 0; i < kill.length; i++) kill[i].parentNode.removeChild(kill[i]);
+          var txt = main.textContent.replace(/\\s+/g, ' ').trim();
+
+          return {
+            ld: ld,
+            type:     (txt.match(/\\b(TV|Movie|ONA|OVA|Special|Music)\\b/) || [])[1] || null,
+            status:   (txt.match(/(Currently Airing|Finished Airing)/) || [])[1] || null,
+            score:    (txt.match(/(\\d\\.\\d{1,2})/) || [])[1] || null,
+            seasonQ:  (txt.match(/\\b(Winter|Spring|Summer|Fall)\\b/) || [])[1] || null,
+            year:     (txt.match(/\\b(?:19|20)\\d{2}\\b/) || [])[0] || null,
+            duration: (txt.match(/\\b(\\d+)m\\b/) || [])[1] || null,
+            studio:   (txt.match(/Studio:\\s*([^,]{1,40}?)\\s+(?:Watch|Get|Select)/) || [])[1] || null
+          };
+        })
+    `);
+
+    const ld = data?.ld || {};
+    const episodes = await this.getEpisodes(animeId).catch(() => []);
+
+    return {
+      id: animeId,
+      name: ld.name || null,
+      englishName: ld.name || null,
+      nativeName: ld.alternateName || null,
+      description: ld.description || null,
+      thumbnail: ld.image || null,
+      // anidb no expone banner propio; se reusa el póster para no dejar hueco.
+      banner: ld.image || null,
+      genres: Array.isArray(ld.genre) ? ld.genre : [],
+      type: data?.type || "TV",
+      status: data?.status || null,
+      score: data?.score ? parseFloat(data.score) : null,
+      studios: data?.studio ? [data.studio.trim()] : [],
+      season:
+        data?.seasonQ && data?.year
+          ? { quarter: data.seasonQ, year: parseInt(data.year, 10) }
+          : null,
+      airedStart: data?.year ? { year: parseInt(data.year, 10) } : null,
+      episodeCount: episodes.length || null,
+      availableEpisodes: { sub: episodes.length, dub: episodes.length },
+      episodeDuration: data?.duration ? parseInt(data.duration, 10) * 60000 : null,
+    };
+  }
+
+  /**
+   * Números de episodio como strings ordenados — mismo contrato que devolvía
+   * `AnimeService.getEpisodesList` con AllAnime (["1","2","3"…]).
+   */
+  static async getEpisodeNumbers(animeId) {
+    const episodes = await this.getEpisodes(animeId);
+    return episodes
+      .map((ep) => String(ep.number))
+      .sort((a, b) => parseFloat(a) - parseFloat(b));
+  }
+
+  /**
+   * Calendario de emisión. anidb tiene endpoint JSON propio, no hay que
+   * scrapear: /api/frontend/schedule
+   * @returns {Promise<Array<{id,episode_name,airing_at,anime_id,anime_title,anime_poster,anime_url}>>}
+   */
+  static async getSchedule() {
+    const data = await cfFetchJson(`${BASE}/api/frontend/schedule`);
+    return Array.isArray(data?.schedules) ? data.schedules : [];
+  }
+
+  /**
    * Lista de episodios.
    * @returns {Promise<Array<{id:number, number:number, filler:boolean}>>}
    */

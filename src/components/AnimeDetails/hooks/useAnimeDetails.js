@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
-import AnimeService from "../../../services/AnimeService";
+import { AnimeSource as AnimeService } from "../../../services/source";
 import DownloadService from "../../../services/DownloadService";
 import {
   isAnimeDataComplete,

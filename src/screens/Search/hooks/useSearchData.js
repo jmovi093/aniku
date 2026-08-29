@@ -4,7 +4,7 @@ import { createLogger } from "../../../utils/logger";
 // Hook para gestión de búsquedas
 
 import React, { useState } from "react";
-import AnimeService from "../../../services/AnimeService";
+import { AnimeSource as AnimeService } from "../../../services/source";
 import { useSearchDebounce } from "../../../hooks";
 import { CustomAlert } from "../../../components/CustomAlert";
 import { GENRES, SEASONS } from "../../../utils/apiConfig";

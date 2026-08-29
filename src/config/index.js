@@ -11,9 +11,10 @@ export const appConfig = {
   //   Su API está detrás de Cloudflare, así que la metadata pasa por un
   //   WebView oculto (src/utils/cloudflareBridge.js); el video va directo.
   //
-  // Se deja en "mkissa" hasta validar el WebView en device. Para probar la
-  // fuente nueva basta cambiar esto — ver .claude/ANIDB-SOURCE.md.
-  source: "mkissa",
+  // FUENTE ACTIVA: anidb. Los servicios de AllAnime siguen en el repo como
+  // REFERENCIA pero ya nadie los importa — el ruteo vive en
+  // src/services/source/index.js. Ver .claude/ANIDB-SOURCE.md.
+  source: "anidb",
 
   // 🎨 Tema por defecto
   theme: {

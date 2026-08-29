@@ -5,7 +5,6 @@ import { createLogger } from "../../../utils/logger";
 
 import { useState, useEffect } from "react";
 import HistoryService from "../../../services/HistoryService";
-import AnimeService from "../../../services/AnimeService";
 
 export const useWatchingData = (navigation) => {
   const [watching, setWatching] = useState([]);

@@ -7,7 +7,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { VideoPlayer } from "./components";
 import { useVideoPlayer, useEpisodeManager } from "./hooks";
 import { playerStyles as styles } from "./styles/PlayerStyles";
-import AnimeService from "../../services/AnimeService";
+import { AnimeSource as AnimeService } from "../../services/source";
 import { createLogger } from "../../utils/logger";
 
 const logger = createLogger("player");

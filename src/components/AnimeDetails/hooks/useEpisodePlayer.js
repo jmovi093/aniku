@@ -5,7 +5,7 @@ import { createLogger } from "../../../utils/logger";
 
 import { useState, useCallback } from "react";
 import { Alert } from "react-native";
-import AnimeService from "../../../services/AnimeService";
+import { AnimeSource as AnimeService } from "../../../services/source";
 import VideoService from "../../../services/VideoService";
 import DownloadService from "../../../services/DownloadService";
 import HistoryService from "../../../services/HistoryService";

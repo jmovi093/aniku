@@ -3,7 +3,7 @@ import { createLogger } from "../../../utils/logger";
 // screens/Watching/hooks/useWatchingNavigation.js
 // Hook para navegación y acciones en watching
 
-import AnimeService from "../../../services/AnimeService";
+import { AnimeSource as AnimeService } from "../../../services/source";
 import HybridHistoryService from "../../../services/HybridHistoryService";
 import VideoStreamService from "../../../services/VideoStreamService";
 import { CustomAlert } from "../../../components/CustomAlert";

@@ -4,7 +4,7 @@ import { createLogger } from "../../../utils/logger";
 // Hook para la gestión de episodios y navegación
 
 import { useState, useEffect } from "react";
-import AnimeService from "../../../services/AnimeService";
+import { AnimeSource as AnimeService } from "../../../services/source";
 import VideoStreamService from "../../../services/VideoStreamService";
 
 export const useEpisodeManager = (
