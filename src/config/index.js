@@ -55,7 +55,10 @@ export const appConfig = {
   // 🎥 Video
   video: {
     autoPlay: false,
-    defaultQuality: "auto",
+    // Calidad preferida al abrir un episodio. Si no existe entre los enlaces
+    // disponibles, se cae a la más cercana hacia abajo y, si no hay, a la mejor.
+    // Ver pickPreferredQualityIndex() en src/utils/videoQuality.js
+    defaultQuality: "720p",
     skipIntroLength: 85, // segundos
     continueWatchingThreshold: 0.9, // 90%
   },

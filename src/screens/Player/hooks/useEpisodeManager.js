@@ -6,6 +6,8 @@ import { createLogger } from "../../../utils/logger";
 import { useState, useEffect } from "react";
 import { AnimeSource as AnimeService } from "../../../services/source";
 import VideoStreamService from "../../../services/VideoStreamService";
+import { pickPreferredQualityIndex } from "../../../utils/videoQuality";
+import { appConfig } from "../../../config";
 
 export const useEpisodeManager = (
   initialEpisodeNumber,
@@ -52,7 +54,11 @@ export const useEpisodeManager = (
       if (videoLinks && videoLinks.length > 0) {
         setCurrentEpisodeNumber(nextEpisodeNum);
         setCurrentVideoLinks(videoLinks);
-        setSelectedQuality(0);
+        // Respetar la calidad preferida también al pasar de episodio; antes
+        // volvía siempre al índice 0 (la más alta).
+        setSelectedQuality(
+          pickPreferredQualityIndex(videoLinks, appConfig.video.defaultQuality),
+        );
         setCurrentTime(0);
         setDuration(0);
         setHasInitialLoad(false);

@@ -27,14 +27,62 @@ import { createLogger } from "../../utils/logger";
 // huecos conocidos de esta fuente.
 
 import { appConfig } from "../../config";
-import AnidbService, { ANIDB_GENRES, ANIDB_SORTS } from "../AnidbService";
+import AnidbService, {
+  ANIDB_GENRES,
+  ANIDB_SEASONS,
+  ANIDB_SORTS,
+  ANIDB_STATUSES,
+  ANIDB_TYPES,
+} from "../AnidbService";
 
 const SOURCE = appConfig.source;
 
+/**
+ * Taxonomía de la fuente activa, para que la UI de filtros ofrezca EXACTAMENTE
+ * lo que la fuente entiende.
+ *
+ * ⚠️ Antes la pantalla Search tomaba `GENRES` de `utils/apiConfig.js`, que es
+ * la lista de **AllAnime** ("Isekai", "Shounen", "Mecha", "Vampire"…). En anidb
+ * esos no son géneros sino themes o demographics, así que el filtro se
+ * ignoraba en silencio. Los ids del mapa SÍ estaban bien; lo que estaba mal era
+ * la lista de nombres que se le mostraba al usuario.
+ * `utils/apiConfig.js` se deja intacto porque pertenece a la fuente vieja.
+ */
+export const SourceTaxonomy = {
+  // 21 géneros, ids verificados contra el <select> del sitio.
+  genres: Object.values(ANIDB_GENRES),
+  seasons: ["Winter", "Spring", "Summer", "Fall"],
+  types: ANIDB_TYPES,
+  statuses: ANIDB_STATUSES,
+  // el <select> del sitio va de 2026 a 1925
+  years: Array.from({ length: new Date().getFullYear() - 1925 + 1 },
+    (_, i) => new Date().getFullYear() - i),
+  sorts: [
+    { value: "order_trending", label: "Trending" },
+    { value: "order_top", label: "Top Rated" },
+    { value: "order_updated", label: "Latest Updated" },
+    { value: "order_popular", label: "Most Popular" },
+    { value: "order_favorite", label: "Most Favorited" },
+    { value: "order_top_airing", label: "Top Airing" },
+    { value: "title", label: "Title A-Z" },
+    { value: "aired_start", label: "Newest First" },
+  ],
+  // anidb NO soporta combinar géneros: probado con `1,14`, `genres=1&genres=14`,
+  // `1|14` y `1+14` — el servidor toma uno solo; con `genres[]=…` devuelve 0.
+  // Si el usuario elige varios, se aplica el primero.
+  supportsMultiGenre: false,
+};
+
 // ─── normalización de cards ─────────────────────────────────────────────────
-// anidb devuelve { id, title, thumbnail }; la UI espera los campos de AllAnime.
-// Los que anidb no da a nivel de listado quedan en null/0 — la UI ya los trata
-// como opcionales (se llenan al abrir el detalle).
+// anidb devuelve { id, title, thumbnail, type, score }; la UI espera los campos
+// de AllAnime. Los que anidb no da en el listado quedan null — la UI ya los
+// trata como opcionales (se llenan al abrir el detalle).
+//
+// ⚠️ `episodes: null` es a propósito: la card de /browse NO trae cantidad de
+// episodios (verificado sobre el HTML real — solo hay póster, título, badge de
+// tipo y badge de nota). Por eso las tarjetas muestran "n/a" en ese campo. La
+// única forma de tenerlo sería pedir el detalle de CADA anime del listado, o
+// sea decenas de requests por pantalla; no vale la pena.
 function toCard(item) {
   return {
     id: item.id,
@@ -44,10 +92,10 @@ function toCard(item) {
     englishName: item.title,
     nativeName: null,
     thumbnail: item.thumbnail,
-    episodes: 0,
+    episodes: null,
     description: null,
-    score: null,
-    type: "TV",
+    score: item.score ?? null,
+    type: item.type || "TV",
     year: null,
     season: null,
     episodeCount: null,

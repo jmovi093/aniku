@@ -4,11 +4,13 @@ import React, { useEffect } from "react";
 import { View, Text, TouchableOpacity, Image, BackHandler } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { VideoPlayer } from "./components";
+import { VideoPlayer, QualitySelector } from "./components";
 import { useVideoPlayer, useEpisodeManager } from "./hooks";
 import { playerStyles as styles } from "./styles/PlayerStyles";
 import { AnimeSource as AnimeService } from "../../services/source";
 import { createLogger } from "../../utils/logger";
+import { pickPreferredQualityIndex } from "../../utils/videoQuality";
+import { appConfig } from "../../config";
 
 const logger = createLogger("player");
 
@@ -50,7 +52,10 @@ const PlayerScreen = ({ route, navigation }) => {
           `🔀 Cambiando de provider tras fallo: ${failedProvider} → ${freshLinks[0].provider}`,
         );
         setCurrentVideoLinks(freshLinks);
-        setSelectedQuality(0);
+        // También acá se respeta la calidad preferida, no el índice 0.
+        setSelectedQuality(
+          pickPreferredQualityIndex(freshLinks, appConfig.video.defaultQuality),
+        );
         return true;
       }
       return false;
@@ -94,6 +99,18 @@ const PlayerScreen = ({ route, navigation }) => {
   const animeIdForNav = route.params.animeId;
   const currentLink =
     currentVideoLinks[selectedQuality] || currentVideoLinks[0];
+
+  // Cambiar de calidad recarga la fuente, así que se guarda la posición y
+  // se vuelve a ella cuando el nuevo stream esté listo. Sin esto el
+  // episodio arrancaría de cero cada vez que se toca una calidad.
+  const handleSelectQuality = (index) => {
+    if (index === selectedQuality) return;
+    const resumeAt = currentTime;
+    setSelectedQuality(index);
+    if (resumeAt > 0) {
+      setTimeout(() => seekTo(resumeAt), 600);
+    }
+  };
 
   const handleNextEpisode = async () => {
     resetForNewEpisode(parseInt(currentEpisodeNumber) + 1);
@@ -165,6 +182,12 @@ const PlayerScreen = ({ route, navigation }) => {
             </Text>
             <Text style={styles.episode}>Episodio {currentEpisodeNumber}</Text>
           </View>
+
+          <QualitySelector
+            currentVideoLinks={currentVideoLinks}
+            selectedQuality={selectedQuality}
+            onSelectQuality={handleSelectQuality}
+          />
 
           {/* Siguiente episodio — solo si existe o aún no se sabe */}
           {hasNextEpisode !== false && (

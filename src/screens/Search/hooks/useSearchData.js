@@ -7,13 +7,13 @@ import React, { useState } from "react";
 import { AnimeSource as AnimeService } from "../../../services/source";
 import { useSearchDebounce } from "../../../hooks";
 import { CustomAlert } from "../../../components/CustomAlert";
-import { GENRES, SEASONS } from "../../../utils/apiConfig";
+// Taxonomía de la fuente ACTIVA (anidb). Antes salía de utils/apiConfig.js,
+// que es la lista de géneros de AllAnime y anidb no entiende.
+import { SourceTaxonomy } from "../../../services/source";
 
-const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = Array.from(
-  { length: CURRENT_YEAR - 1978 + 1 },
-  (_, index) => CURRENT_YEAR - index,
-);
+const GENRES = SourceTaxonomy.genres;
+const SEASONS = SourceTaxonomy.seasons;
+const YEARS = SourceTaxonomy.years;
 
 const RESULTS_PER_PAGE = 26;
 

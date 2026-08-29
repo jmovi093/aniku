@@ -124,10 +124,25 @@ function browseParserExpression(url) {
           if (seen[id]) continue;
           seen[id] = 1;
           var img = a.querySelector('img');
+
+          // La card trae dos badges arriba: el tipo (TV/Movie/…) en el naranja
+          // y la nota en el gris (con el ícono de estrella). NO trae cantidad
+          // de episodios — eso simplemente no existe en el listado de anidb.
+          var type = null, score = null;
+          var badges = a.querySelectorAll('span.badge');
+          for (var b = 0; b < badges.length; b++) {
+            var txt = (badges[b].textContent || '').trim();
+            if (!txt) continue;
+            if (/^(TV|Movie|ONA|OVA|Special|Music)$/i.test(txt)) type = txt;
+            else if (/^\\d+(\\.\\d+)?$/.test(txt)) score = parseFloat(txt);
+          }
+
           out.push({
             id: id,
             title: a.getAttribute('title') || (img && img.getAttribute('alt')) || '',
-            thumbnail: (img && (img.getAttribute('src') || img.getAttribute('data-src'))) || null
+            thumbnail: (img && (img.getAttribute('src') || img.getAttribute('data-src'))) || null,
+            type: type,
+            score: score
           });
         }
         return out;

@@ -1,69 +1,106 @@
 // screens/Player/components/QualitySelector.js
-// Componente para seleccionar calidad y fuentes
+// Selector de calidad del episodio en curso.
+//
+// NOTA: la versión anterior de este archivo era código muerto — nadie lo
+// renderizaba y usaba estilos (`styles.qualityButton`, `styles.qualitiesList`…)
+// que NO existen en PlayerStyles.js, así que habría salido sin formato. Se
+// reescribió autocontenido y se conectó desde PlayerScreen.
 
 import React from "react";
-import { View, Text, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { playerStyles as styles } from "../styles/PlayerStyles";
 
+/**
+ * @param {Array}    currentVideoLinks  enlaces disponibles (ordenados de mayor a menor)
+ * @param {number}   selectedQuality    índice activo
+ * @param {Function} onSelectQuality    (index) => void
+ */
 const QualitySelector = ({
-  currentVideoLinks,
-  selectedQuality,
-  handlePlayVideo,
-  handleNextEpisode,
-  currentEpisodeNumber,
+  currentVideoLinks = [],
+  selectedQuality = 0,
+  onSelectQuality,
 }) => {
-  const renderQualityOption = (link, index) => {
-    const isSelected = selectedQuality === index;
-
-    return (
-      <TouchableOpacity
-        key={index}
-        style={[styles.qualityButton, isSelected && styles.selectedQuality]}
-        onPress={() => handlePlayVideo(link, index)}
-      >
-        <View style={styles.qualityInfo}>
-          <Text style={styles.qualityText}>
-            {link.quality || "Auto"} ({link.type || "MP4"})
-          </Text>
-          <Text style={styles.typeText}>
-            {link.source || "Fuente desconocida"}
-          </Text>
-          {link.provider && (
-            <Text style={styles.providerText}>Provider: {link.provider}</Text>
-          )}
-        </View>
-        {isSelected && (
-          <MaterialIcons name="check-circle" size={24} color="#007bff" />
-        )}
-      </TouchableOpacity>
-    );
-  };
+  // Con una sola fuente no hay nada que elegir.
+  if (!currentVideoLinks || currentVideoLinks.length < 2) return null;
 
   return (
-    <View style={styles.qualitiesContainer}>
-      <Text style={styles.qualityTitle}>
-        Fuentes disponibles ({currentVideoLinks.length}):
-      </Text>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <MaterialIcons name="hd" size={18} color="#9aa0a6" />
+        <Text style={styles.title}>Calidad</Text>
+      </View>
 
-      <ScrollView style={styles.qualitiesList}>
-        {currentVideoLinks.map((link, index) =>
-          renderQualityOption(link, index)
-        )}
-      </ScrollView>
-
-      {/* Botón de próximo episodio */}
-      <TouchableOpacity
-        style={styles.nextEpisodeButton}
-        onPress={handleNextEpisode}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}
       >
-        <MaterialIcons name="skip-next" size={20} color="#ffffff" />
-        <Text style={styles.nextEpisodeText}>
-          Próximo episodio - Episodio {parseInt(currentEpisodeNumber) + 1}
-        </Text>
-      </TouchableOpacity>
+        {currentVideoLinks.map((link, index) => {
+          const isSelected = selectedQuality === index;
+          return (
+            <TouchableOpacity
+              key={`${link?.url || index}-${index}`}
+              style={[styles.chip, isSelected && styles.chipSelected]}
+              onPress={() => onSelectQuality?.(index)}
+            >
+              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
+                {link?.quality || "Auto"}
+              </Text>
+              {isSelected && (
+                <MaterialIcons name="check" size={14} color="#ffffff" />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 12,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  title: {
+    color: "#9aa0a6",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  row: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: "#1e1e1e",
+    borderWidth: 1,
+    borderColor: "#2e2e2e",
+  },
+  chipSelected: {
+    backgroundColor: "#007bff",
+    borderColor: "#007bff",
+  },
+  chipText: {
+    color: "#d0d0d0",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  chipTextSelected: {
+    color: "#ffffff",
+  },
+});
 
 export default QualitySelector;

@@ -7,6 +7,8 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import * as NavigationBar from "expo-navigation-bar";
 import { createLogger } from "../../../utils/logger";
 import HybridHistoryService from "../../../services/HybridHistoryService";
+import { pickPreferredQualityIndex } from "../../../utils/videoQuality";
+import { appConfig } from "../../../config";
 
 const logger = createLogger("player");
 
@@ -20,7 +22,14 @@ export const useVideoPlayer = (
   { onProviderExhausted } = {},
 ) => {
   // Estados del reproductor
-  const [selectedQuality, setSelectedQuality] = useState(0);
+  // Arranca en la calidad preferida (appConfig.video.defaultQuality), no en
+  // el índice 0, que sería siempre la más alta disponible.
+  const [selectedQuality, setSelectedQuality] = useState(() =>
+    pickPreferredQualityIndex(
+      route?.params?.videoLinks,
+      appConfig.video.defaultQuality,
+    ),
+  );
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);

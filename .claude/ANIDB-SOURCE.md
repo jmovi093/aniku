@@ -168,7 +168,7 @@ Parámetros, todos combinables:
 | `type` | `TV`, `Movie`, `ONA`, `OVA`, `Special`, `Music` |
 | `status` | `Currently Airing`, `Finished Airing` |
 | `season` | `winter`, `spring`, `summer`, `fall` |
-| `year` | `2013`…`2026` |
+| `year` | `1925`…`2026` (60 opciones en el select) |
 | `genres` | id numérico (ver 4.2) |
 | `sort` | ver abajo |
 | `page` | paginación |
@@ -302,6 +302,19 @@ ve "Episode 1", "Episode 2"… El `episode_name` del schedule también es genér
 ("Episode 22"). AllAnime sí tenía `notes` con el título real.
 → La UI ya trata `notes` como opcional, así que no rompe: la lista queda con
 números y el badge de *filler* (que AllAnime **no** tenía, así que se gana eso).
+
+### a-bis) Cantidad de episodios en las CARDS — NO EXISTE
+El HTML de una card de `/browse` trae **póster, título, badge de tipo
+(TV/Movie/…) y badge de nota** — nada más. No hay cantidad de episodios, por eso
+las tarjetas muestran "n/a" en ese campo. Tenerlo exigiría pedir el detalle de
+CADA anime del listado (decenas de requests por pantalla), así que no se hace.
+Sí se aprovechan **tipo y nota**, que antes se hardcodeaban.
+
+### a-ter) Géneros combinados — NO SE PUEDE
+Probado contra el sitio: `genres=1,14`, `genres=1&genres=14`, `genres=1|14` y
+`genres=1+14` devuelven lo mismo que un solo género (el server toma uno), y
+`genres[]=1&genres[]=14` devuelve **0 resultados**. Si el usuario elige varios,
+se aplica el primero (`SourceTaxonomy.supportsMultiGenre === false`).
 
 ### b) Thumbnails de episodio — NO EXISTEN
 No hay imagen por episodio en ningún endpoint ni en el HTML. Solo hay póster
