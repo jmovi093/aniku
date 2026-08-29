@@ -21,7 +21,6 @@ Si ani-cli **da un giro de 180° y se cambia a otro proveedor** (como cuando v5,
 
 **Todo lo demás se arregla solo, sin preguntar.** Cambios *dentro* de la misma fuente — que rote la clave, que cambie el hash de la query, que se mude el host de un endpoint, que cambie el mecanismo de cripto, que aparezca un header nuevo obligatorio — **son trabajo normal: arreglarlo y reportarlo al final**, no interrumpir.
 
-### Estado de fuentes hoy
 ### 📚 Documentación local (leer ANTES de investigar)
 | Archivo | Qué cubre |
 |---|---|
@@ -30,6 +29,7 @@ Si ani-cli **da un giro de 180° y se cambia a otro proveedor** (como cuando v5,
 | `.claude/check-source-contract.js` | Valida formas de retorno del adaptador (correr antes de cada APK) |
 | `.claude/extract-mkissa-keys.js` | Regenera constantes de mkissa (fuente vieja, por si hay que volver) |
 
+### Estado de fuentes hoy
 - **anidb.app** (`AnidbService.js` + `services/source/index.js`) → **FUENTE ACTIVA**, `appConfig.source = "anidb"`. Es la misma que usa ani-cli v5. Todo en **`.claude/ANIDB-SOURCE.md`** (endpoints, taxonomía, por qué necesita WebView y el plan B con curl-impersonate).
 - **mkissa/AllAnime** (`AnimeService.js`, `CatalogService.js`, `ScheduleService.js`, `AnimeDetailsService.js`) → 🔌 **desconectado**. Los archivos siguen en el repo **a propósito, como referencia — no borrarlos**; nadie los importa. Su cripto quedó arreglada (esquema bootstrap) por si hay que volver: se reconecta en `services/source/index.js`. La rama `deprecated/allmanga` tiene el estado previo a la migración.
 
