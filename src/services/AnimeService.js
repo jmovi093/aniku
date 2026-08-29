@@ -25,34 +25,73 @@ import CatalogService from "./CatalogService.js";
 //    Fuimos persiguiendo valores hardcodeados (cada rotación = /release manual):
 //    22196fa6… → volvió a Xot36i3lK3 el 07-12 → cf4777b5… (07-17) → e661283a…
 //    (07-20). epoch/buildId llegaron a 6884 / "51". Referer pasó a youtu-chan.com.
-// 3) 2026-07-22 (ACTUAL): migración allanime.day → mkissa.net. La clave dejó de
-//    hardcodearse: ahora se DERIVA en runtime del sitio (ver deriveKeyMaterial),
-//    igual que pystardust/ani-cli 4.15.0 (PR #1779). El `aaReq` perdió `buildId`
-//    y `tobeparsed` pasó de CTR a GCM. Referer pasó a mkissa.to.
+// 3) 2026-07-22: migración allanime.day → mkissa.net. La clave dejó de
+//    hardcodearse: se DERIVABA scrapeando `epoch`+`partB` del HTML de mkissa.to
+//    y un `mask` de 64 hex en texto plano de los chunks JS; clave = mask XOR
+//    partB. Igual que pystardust/ani-cli 4.15.0 (PR #1779). El `aaReq` perdió
+//    `buildId` y `tobeparsed` pasó de CTR a GCM. Referer pasó a mkissa.to.
+// 4) 2026-08-29 (ACTUAL): mkissa endureció todo el esquema.
+//    - `epoch`/`partB` YA NO están en el HTML (mkissa.to/ es ahora una landing).
+//    - `partB` sale de un endpoint nuevo: GET {API}/client-crypto/v1/bootstrap
+//      ?buildId=<id>&k=<lane>, que exige headers `x-build-id` y `x-aa-boot`.
+//    - El `mask` YA NO está en texto plano: se calcula dentro del bundle
+//      ofuscado a partir de 4 fragmentos base64, el buildId y unas sales.
+//    - Volvió `buildId` al payload de aaReq y se sumó el "content lane" (`k`).
+//    - El host de la query de episodio pasó a api.mkissa.net.
+//    OJO: pystardust/ani-cli YA NO SIRVE COMO REFERENCIA — v5 (PR #1830)
+//    abandonó AllAnime y se pasó a anidb; su rama allanime-fix quedó vieja.
 //
-// Derivación actual (sin hardcodear clave/epoch):
-//   1. `epoch` y `partB` del HTML de https://mkissa.to
-//   2. `mask` (32 bytes en hex) del primer chunk JS del build que lo tenga
-//   3. clave AES-256 = mask XOR partB  (byte a byte)
-// El sitio se baja con fetch plano (sin challenge de Cloudflare), así que no
-// hace falta WebView. Si el esquema de DERIVACIÓN cambia (no solo los valores),
-// revisar el PR/issue reciente en pystardust/ani-cli y comparar con su `ani-cli`.
+// Esquema actual:
+//   1. epoch  = floor(Date.now() / 604800000)   (ventana semanal; con gracia de
+//      1 día hacia atrás — se prueba epoch y epoch-1, ver candidateEpochs()).
+//   2. x-aa-boot = hex(HMAC(HMAC(MASK, "<bootPrefix><buildId>"),
+//                           "<epoch>~<host>~<buildId>~<lane>~<group>"))
+//   3. GET bootstrap → { epoch, partB, k }
+//   4. clave AES-256 = partB XOR MASK  (byte a byte)
+//
+// POR QUÉ MASK/BUILD_ID ESTÁN HARDCODEADOS (y antes no):
+// reproducir el cálculo del mask exige desofuscar el bundle (arrays rotados,
+// decoders, sales) — inviable con un regex desde React Native. Lo que rota solo
+// es `partB`/`epoch`, y eso SÍ se sigue resolviendo en runtime vía bootstrap.
+// Cuando mkissa haga un deploy nuevo cambian MASK/BUILD_ID/QUERY_HASH: correr
+//   node .claude/extract-mkissa-keys.js
+// que los re-deriva del bundle vivo, y pegar los valores acá abajo.
 //
 // PERSISTENCIA (estrategia lazy — ver getKeyMaterial/refreshKeyMaterial):
 // la clave derivada se guarda en AsyncStorage y sobrevive cierres de app. NO se
 // deriva de forma proactiva: se usa la guardada hasta que la API la rechaza
-// (AA_CRYPTO_STALE/MISSING), y solo ahí se re-deriva del sitio y se re-guarda.
-// Como AllAnime rota pocas veces (~días), el caso común no paga red extra.
+// (AA_CRYPTO_STALE/MISSING), y solo ahí se re-deriva y se re-guarda.
 //
-// Último esquema hardcodeado conocido (2026-07-20), por si hace falta rollback:
-//   clave e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0,
-//   epoch 6884, buildId "51", referer youtu-chan.com, tobeparsed en AES-256-CTR
-//   con counter = IV+"00000002", clave probada en cascada contra varias candidatas.
-const KEY_SITE = "https://mkissa.to";
-const KEY_CDN = "https://cdn.mkissa.net/all/mk/_app/immutable";
-// Referer/Origin que la API exige para la query de episodio desde la
-// migración a mkissa (antes era youtu-chan.com; allmanga.to nunca sirvió aquí).
+// Valores del esquema ANTERIOR (2026-07-22), por si hace falta rollback:
+//   KEY_SITE "https://mkissa.to", KEY_CDN
+//   "https://cdn.mkissa.net/all/mk/_app/immutable", epoch/partB por regex
+//   sobre el HTML, mask = primer /[0-9a-f]{64}/ de los primeros 5 chunks,
+//   aaReq payload {v,ts,epoch,qh} e IV = SHA256("epoch:qh:ts")[:12],
+//   query hash f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0
+//   contra https://api.allanime.day. Y el esquema de 2026-07-20: clave fija
+//   e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0,
+//   epoch 6884, buildId "51", referer youtu-chan.com, tobeparsed en AES-256-CTR.
+
+// Referer/Origin que la API exige para la query de episodio y el bootstrap.
 const EPISODE_REFERER = "https://mkissa.to";
+// Host de la query de episodio + bootstrap. El catálogo/trending/episodios
+// siguen yendo a API_CONFIG.BASE_URL (api.allanime.day), que sigue vivo;
+// api.mkissa.net también los responde si algún día allanime.day muere.
+const EPISODE_API_BASE = "https://api.mkissa.net";
+
+// ─── Constantes del build de mkissa (regenerar con extract-mkissa-keys.js) ───
+// Última extracción: 2026-08-29, build 148.
+const AA_BUILD_ID = "148";
+const AA_MASK_HEX =
+  "5431adffc5cb1502e4817f2c007b2c3def93b91221aaf808d0b0fea4bf3d30bf";
+const AA_LANE = "k7"; // "content lane" de la query de episodio
+const AA_LANE_FIELD = "k"; // nombre del campo en extensions/payload
+const AA_KEY_GROUP = "mkissa";
+const AA_BOOT_PREFIX = "sXKiyl:";
+const AA_BOOT_JOIN = "~";
+const AA_BOOT_PARTS = ["epoch", "host", "buildId", "lane", "group"];
+const AA_EPOCH_MS = 604800000; // ventana de epoch (1 semana)
+const AA_BOOT_HOST = "mkissa.to";
 // Clave de AsyncStorage donde se PERSISTE el material derivado {epoch, keyHex}.
 // La estrategia es lazy: se confía en la clave guardada (sobrevive cierres de
 // app) hasta que la API la rechaza (AA_CRYPTO_STALE/MISSING); solo ahí se
@@ -244,59 +283,84 @@ async function persistKeyMaterial(material) {
   }
 }
 
-async function fetchText(url) {
-  const response = await axios.get(url, {
-    headers: { "User-Agent": API_CONFIG.USER_AGENT },
-    responseType: "text",
-    transformResponse: [(data) => data],
-    timeout: 15000,
-  });
-  return typeof response.data === "string"
-    ? response.data
-    : String(response.data ?? "");
+// Epoch = ventana semanal. El sitio acepta también la anterior durante 1 día de
+// gracia, así que se prueban las dos: si el reloj del dispositivo está algo
+// corrido o acabamos de cruzar el borde de la semana, la segunda salva.
+function candidateEpochs() {
+  const current = Math.floor(Date.now() / AA_EPOCH_MS);
+  return current > 0 ? [current, current - 1] : [current];
+}
+
+// x-aa-boot: HMAC-SHA256 encadenado sobre el MASK del build.
+//   inner = HMAC(MASK, "<bootPrefix><buildId>")
+//   token = hex(HMAC(inner, "<epoch>~<host>~<buildId>~<lane>~<group>"))
+// El orden y el separador salen de la config del bundle (AA_BOOT_PARTS/JOIN).
+function buildBootToken(epoch) {
+  const values = {
+    buildId: AA_BUILD_ID,
+    group: AA_KEY_GROUP,
+    host: AA_BOOT_HOST,
+    epoch: String(epoch),
+    lane: AA_LANE,
+  };
+  const maskWords = CryptoJS.enc.Hex.parse(AA_MASK_HEX);
+  const inner = CryptoJS.HmacSHA256(`${AA_BOOT_PREFIX}${AA_BUILD_ID}`, maskWords);
+  const canonical = AA_BOOT_PARTS.map((part) => values[part] ?? "").join(AA_BOOT_JOIN);
+  return CryptoJS.HmacSHA256(canonical, inner).toString(CryptoJS.enc.Hex);
+}
+
+// Pide `partB` al endpoint de bootstrap para un epoch dado.
+async function fetchBootstrap(epoch) {
+  const response = await axios.get(
+    `${EPISODE_API_BASE}/client-crypto/v1/bootstrap`,
+    {
+      params: { buildId: AA_BUILD_ID, k: AA_LANE },
+      headers: {
+        "User-Agent": API_CONFIG.USER_AGENT,
+        "x-build-id": AA_BUILD_ID,
+        "x-aa-boot": buildBootToken(epoch),
+        Referer: `${EPISODE_REFERER}/`,
+        Origin: EPISODE_REFERER,
+      },
+      timeout: 15000,
+    },
+  );
+  return response.data;
 }
 
 async function deriveKeyMaterial() {
-  // 1. HTML del sitio → epoch + partB + URL del app.js del build.
-  const page = await fetchText(KEY_SITE);
-  const epochMatch = page.match(/"epoch":(\d+)/);
-  const partBMatch = page.match(/"partB":"([^"]+)"/);
-  const appMatch = page.match(
-    new RegExp(
-      `${KEY_CDN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/entry/app\\.[A-Za-z0-9_.-]+\\.js`,
-    ),
-  );
-  if (!epochMatch || !partBMatch || !appMatch) {
-    throw new Error("No se pudo extraer epoch/partB/app.js de mkissa.to");
-  }
+  const maskBytes = hexToByteArray(AA_MASK_HEX);
+  let lastError = null;
 
-  const epoch = parseInt(epochMatch[1], 10);
-  const partBBytes = base64ToByteArray(partBMatch[1]);
-
-  // 2. app.js → primeros chunks → primer mask de 64 hex (32 bytes).
-  const appJs = await fetchText(appMatch[0]);
-  const chunkPaths = [...appJs.matchAll(/"\.\.\/chunks\/([A-Za-z0-9_.-]+\.js)"/g)]
-    .map((match) => match[1])
-    .slice(0, 5);
-
-  let maskHex = null;
-  for (const chunk of chunkPaths) {
-    const chunkJs = await fetchText(`${KEY_CDN}/chunks/${chunk}`);
-    const maskMatch = chunkJs.match(/[0-9a-f]{64}/);
-    if (maskMatch) {
-      maskHex = maskMatch[0];
-      break;
+  for (const epoch of candidateEpochs()) {
+    let data;
+    try {
+      data = await fetchBootstrap(epoch);
+    } catch (error) {
+      // 403 invalid_boot_token con el epoch actual es esperable justo después
+      // de cruzar la semana: se reintenta con el anterior antes de rendirse.
+      lastError = error;
+      continue;
     }
-  }
-  if (!maskHex) {
-    throw new Error("No se encontró mask de 64 hex en los chunks JS");
+
+    if (!data?.partB) {
+      lastError = new Error("bootstrap sin partB");
+      continue;
+    }
+
+    // clave AES-256 = partB XOR mask (byte a byte).
+    const partBBytes = base64ToByteArray(data.partB);
+    const keyBytes = partBBytes
+      .slice(0, 32)
+      .map((byte, i) => byte ^ (maskBytes[i % maskBytes.length] || 0));
+
+    return { epoch: Number.isFinite(data.epoch) ? data.epoch : epoch, keyBytes };
   }
 
-  // 3. clave AES-256 = mask XOR partB (byte a byte).
-  const maskBytes = hexToByteArray(maskHex);
-  const keyBytes = maskBytes.map((byte, i) => byte ^ (partBBytes[i] || 0));
-
-  return { epoch, keyBytes };
+  throw new Error(
+    `No se pudo obtener partB del bootstrap de mkissa (${lastError?.message || "sin detalle"}). ` +
+      "Si persiste, el build cambió: correr node .claude/extract-mkissa-keys.js",
+  );
 }
 
 async function loadOrDeriveKeyMaterial() {
@@ -371,10 +435,18 @@ function isStaleCryptoResponse(data) {
 
 function buildAaReqToken(queryHash, epoch, keyBytes) {
   const ts = Math.floor(Date.now() / 300000) * 300000;
-  const payload = JSON.stringify({ v: 1, ts, epoch, qh: queryHash });
+  // Desde 2026-08-29 el payload volvió a llevar `buildId` y sumó el lane (`k`).
+  const payload = JSON.stringify({
+    v: 1,
+    ts,
+    epoch,
+    buildId: AA_BUILD_ID,
+    qh: queryHash,
+    [AA_LANE_FIELD]: AA_LANE,
+  });
 
   const ivBytes = wordArrayToByteArray(
-    CryptoJS.SHA256(`${epoch}:${queryHash}:${ts}`),
+    CryptoJS.SHA256(`${epoch}:${AA_BUILD_ID}:${queryHash}:${ts}:${AA_LANE}`),
   ).slice(0, 12);
   const payloadBytes = wordArrayToByteArray(CryptoJS.enc.Utf8.parse(payload));
 
@@ -743,15 +815,19 @@ class AnimeService {
 
     try {
       const variables = { showId, translationType, episodeString };
+      // sha256 del texto de la query de episodio del build actual. Si cambia,
+      // la API responde PersistedQueryNotFound: regenerarlo con
+      // node .claude/extract-mkissa-keys.js
       const queryHash =
-        "f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0";
+        "c66a5306b7ab6cf4701e766cb352b25b70198e873c4e917f9388da75db5cdca2";
 
       const requestProviders = (keyMaterial) =>
-        axios.get(`${API_CONFIG.BASE_URL}/api`, {
+        axios.get(`${EPISODE_API_BASE}/api`, {
           params: {
             variables: JSON.stringify(variables),
             extensions: JSON.stringify({
               persistedQuery: { version: 1, sha256Hash: queryHash },
+              [AA_LANE_FIELD]: AA_LANE,
               aaReq: buildAaReqToken(
                 queryHash,
                 keyMaterial.epoch,
@@ -761,10 +837,12 @@ class AnimeService {
           },
           // La API valida Origin/Referer contra su dominio espejo (mkissa.to)
           // desde la migración; allmanga.to/youtu-chan.com ya no sirven aquí.
+          // `x-build-id` es obligatorio: sin él responde AA_CRYPTO_MISSING_BUILD.
           headers: {
             ...API_CONFIG.getGetHeaders(),
             Referer: EPISODE_REFERER,
             Origin: EPISODE_REFERER,
+            "x-build-id": AA_BUILD_ID,
           },
         });
 

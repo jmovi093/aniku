@@ -52,25 +52,51 @@ const AUTO_FIX = args.includes('--fix');
 //    /release manual): clave 22196fa6... → volvió a la vieja Xot36i3lK3 el
 //    07-12 → cf4777b5... el 07-17 → e661283a... el 07-20. epoch/buildId
 //    llegaron a ser 6884 / "51". Referer pasó a youtu-chan.com.
-// 3) 2026-07-22 (esquema ACTUAL): migración de allanime.day → mkissa.net.
-//    La clave dejó de hardcodearse: ahora se DERIVA en runtime del sitio
-//    (ver fetchKeys()). El `aaReq` perdió `buildId` (payload {v,ts,epoch,qh},
-//    IV=SHA256("epoch:qh:ts")[:12]) y el `tobeparsed` pasó de CTR a GCM.
-//    Referer pasó a mkissa.to. Espejo compatible con la migración de ani-cli
-//    4.15.0 (PR #1779 de pystardust/ani-cli).
+// 3) 2026-07-22: migración de allanime.day → mkissa.net. La clave dejó de
+//    hardcodearse: se DERIVABA scrapeando epoch+partB del HTML de mkissa.to y
+//    un mask de 64 hex en texto plano de los chunks JS. El `aaReq` perdió
+//    `buildId` (payload {v,ts,epoch,qh}, IV=SHA256("epoch:qh:ts")[:12]) y el
+//    `tobeparsed` pasó de CTR a GCM. Referer pasó a mkissa.to. Espejo de
+//    ani-cli 4.15.0 (PR #1779 de pystardust/ani-cli).
+// 4) 2026-08-29 (esquema ACTUAL): mkissa endureció todo.
+//    - epoch/partB YA NO están en el HTML (mkissa.to es ahora una landing).
+//    - partB sale de GET {EPISODE_API_BASE}/client-crypto/v1/bootstrap
+//      ?buildId&k, con headers x-build-id y x-aa-boot (HMAC encadenado).
+//    - el mask YA NO está en texto plano (se calcula en el bundle ofuscado),
+//      así que se hardcodea acá y se regenera con extract-mkissa-keys.js.
+//    - volvió `buildId` al payload de aaReq y se sumó el lane (`k`).
+//    - la query de episodio se mudó a api.mkissa.net y cambió su hash.
+//    OJO: pystardust/ani-cli YA NO SIRVE de referencia — v5 (PR #1830) dejó
+//    AllAnime y se pasó a anidb; la rama allanime-fix quedó vieja.
 //
 // Si esto vuelve a fallar: mirar si cambió el ESQUEMA (no solo los valores).
-//   - AA_CRYPTO_STALE  → nuestra clave/epoch derivados quedaron viejos: la
-//     derivación debería re-hacerse sola; si persiste, cambió el sitio (ver
-//     KEY_SITE/KEY_CDN y los regex de fetchKeys).
-//   - AA_CRYPTO_MISSING → falta el token o el formato cambió (¿volvió buildId?
-//     ¿cambió el layout del token/IV?). Comparar con el ani-cli actual.
+//   - bootstrap 403 invalid_boot_token → el build cambió (MASK/BUILD_ID viejos)
+//     o cambió el cálculo del token. Correr extract-mkissa-keys.js primero.
+//   - PersistedQueryNotFound → cambió el texto de la query de episodio; el
+//     extractor también recalcula ese hash (campo episodeQueryHash).
+//   - AA_CRYPTO_MISSING_BUILD → falta el header x-build-id.
+//   - AA_CRYPTO_STALE/MISSING → cambió el layout del payload/IV del aaReq.
 //   - tobeparsed presente pero descifra a basura → cambió el cifrado de la
 //     RESPUESTA (¿volvió a CTR? ¿otra clave/derivación?).
-// La derivación vive en la migración de ani-cli — issue/PR reciente ahí.
-const KEY_SITE = 'https://mkissa.to';
-const KEY_CDN = 'https://cdn.mkissa.net/all/mk/_app/immutable';
 const EPISODE_REFERER = 'https://mkissa.to';
+// Host de la query de episodio + bootstrap (el catálogo sigue en API_BASE).
+const EPISODE_API_BASE = 'https://api.mkissa.net';
+
+// ─── Constantes del build de mkissa ─────────────────────────────────────────
+// DUPLICADAS de src/services/AnimeService.js a propósito (este script tiene que
+// correr solo, sin el bundle de RN). Si cambian allá, cambiarlas acá también.
+// Regenerar ambas con: node .claude/extract-mkissa-keys.js
+// Última extracción: 2026-08-29, build 148.
+const AA_BUILD_ID = '148';
+const AA_MASK_HEX = '5431adffc5cb1502e4817f2c007b2c3def93b91221aaf808d0b0fea4bf3d30bf';
+const AA_LANE = 'k7';
+const AA_LANE_FIELD = 'k';
+const AA_KEY_GROUP = 'mkissa';
+const AA_BOOT_PREFIX = 'sXKiyl:';
+const AA_BOOT_JOIN = '~';
+const AA_BOOT_PARTS = ['epoch', 'host', 'buildId', 'lane', 'group'];
+const AA_EPOCH_MS = 604800000;
+const AA_BOOT_HOST = 'mkissa.to';
 // Último esquema hardcodeado conocido (2026-07-20), por si hace falta rollback
 // o comparar: clave e661283abaef7a6cecd6d74efc385a4f455e838d439af13f2754d51dab9f21e0,
 // epoch 6884, buildId "51", referer youtu-chan.com, tobeparsed en AES-256-CTR.
@@ -93,40 +119,69 @@ function normB64(b64) {
 function hex2b(hex) { return wa2b(CryptoJS.enc.Hex.parse(hex)); }
 function b642b(b64) { return wa2b(CryptoJS.enc.Base64.parse(normB64(b64))); }
 
-// ─── Derivación de clave AES en runtime (esquema mkissa) ────────────────────
-// Espejo de deriveKeyMaterial() en src/services/AnimeService.js: baja el HTML
-// del sitio (epoch+partB), el app.js y sus chunks (mask de 64 hex) y calcula
-// clave = mask XOR partB. Devuelve { epoch, keyBytes }.
+// ─── Derivación de clave AES (esquema bootstrap, 2026-08-29) ────────────────
+// Espejo de deriveKeyMaterial() en src/services/AnimeService.js. `partB` ya no
+// está en el HTML: sale del endpoint /client-crypto/v1/bootstrap, que exige un
+// token HMAC (x-aa-boot) calculado con el MASK del build. Devuelve
+// { epoch, keyBytes }. Si esto falla, regenerar las constantes AA_* con
+//   node .claude/extract-mkissa-keys.js
+function candidateEpochs() {
+  const current = Math.floor(Date.now() / AA_EPOCH_MS);
+  return current > 0 ? [current, current - 1] : [current];
+}
+
+function buildBootToken(epoch) {
+  const values = {
+    buildId: AA_BUILD_ID, group: AA_KEY_GROUP, host: AA_BOOT_HOST,
+    epoch: String(epoch), lane: AA_LANE,
+  };
+  const maskWords = CryptoJS.enc.Hex.parse(AA_MASK_HEX);
+  const inner = CryptoJS.HmacSHA256(`${AA_BOOT_PREFIX}${AA_BUILD_ID}`, maskWords);
+  const canonical = AA_BOOT_PARTS.map((p) => values[p] ?? '').join(AA_BOOT_JOIN);
+  return CryptoJS.HmacSHA256(canonical, inner).toString(CryptoJS.enc.Hex);
+}
+
 async function fetchKeys() {
-  const page = (await axios.get(KEY_SITE, { headers: { 'User-Agent': USER_AGENT }, timeout: 15000, responseType: 'text', transformResponse: [(d) => d] })).data;
-  const epochMatch = page.match(/"epoch":(\d+)/);
-  const partBMatch = page.match(/"partB":"([^"]+)"/);
-  const appMatch = page.match(new RegExp(`${KEY_CDN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/entry/app\\.[A-Za-z0-9_.-]+\\.js`));
-  if (!epochMatch || !partBMatch || !appMatch) throw new Error('No se pudo extraer epoch/partB/app.js de mkissa.to');
+  const maskBytes = hex2b(AA_MASK_HEX);
+  let lastError = null;
 
-  const epoch = parseInt(epochMatch[1], 10);
-  const partBBytes = b642b(partBMatch[1]);
+  for (const epoch of candidateEpochs()) {
+    let data;
+    try {
+      const res = await axios.get(`${EPISODE_API_BASE}/client-crypto/v1/bootstrap`, {
+        params: { buildId: AA_BUILD_ID, k: AA_LANE },
+        headers: {
+          'User-Agent': USER_AGENT,
+          'x-build-id': AA_BUILD_ID,
+          'x-aa-boot': buildBootToken(epoch),
+          Referer: `${EPISODE_REFERER}/`,
+          Origin: EPISODE_REFERER,
+        },
+        timeout: 15000,
+      });
+      data = res.data;
+    } catch (e) {
+      lastError = new Error(`bootstrap epoch ${epoch}: ${e.response?.status || e.message}`);
+      continue;
+    }
+    if (!data?.partB) { lastError = new Error('bootstrap sin partB'); continue; }
 
-  const appJs = (await axios.get(appMatch[0], { headers: { 'User-Agent': USER_AGENT }, timeout: 15000, responseType: 'text', transformResponse: [(d) => d] })).data;
-  const chunkPaths = [...appJs.matchAll(/"\.\.\/chunks\/([A-Za-z0-9_.-]+\.js)"/g)].map((m) => m[1]).slice(0, 5);
-
-  let maskHex = null;
-  for (const chunk of chunkPaths) {
-    const js = (await axios.get(`${KEY_CDN}/chunks/${chunk}`, { headers: { 'User-Agent': USER_AGENT }, timeout: 15000, responseType: 'text', transformResponse: [(d) => d] })).data;
-    const mm = js.match(/[0-9a-f]{64}/);
-    if (mm) { maskHex = mm[0]; break; }
+    const partBBytes = b642b(data.partB);
+    const keyBytes = partBBytes.slice(0, 32).map((b, i) => b ^ (maskBytes[i % maskBytes.length] || 0));
+    return { epoch: Number.isFinite(data.epoch) ? data.epoch : epoch, keyBytes };
   }
-  if (!maskHex) throw new Error('No se encontró mask de 64 hex en los chunks JS');
 
-  const maskBytes = hex2b(maskHex);
-  const keyBytes = maskBytes.map((b, i) => b ^ (partBBytes[i] || 0));
-  return { epoch, keyBytes };
+  throw new Error(lastError?.message || 'bootstrap falló para todos los epochs');
 }
 
 function buildAaReqToken(queryHash, epoch, keyBytes) {
   const ts = Math.floor(Date.now() / 300000) * 300000;
-  const payload = JSON.stringify({ v: 1, ts, epoch, qh: queryHash });
-  const ivBytes = wa2b(CryptoJS.SHA256(`${epoch}:${queryHash}:${ts}`)).slice(0, 12);
+  const payload = JSON.stringify({
+    v: 1, ts, epoch, buildId: AA_BUILD_ID, qh: queryHash, [AA_LANE_FIELD]: AA_LANE,
+  });
+  const ivBytes = wa2b(
+    CryptoJS.SHA256(`${epoch}:${AA_BUILD_ID}:${queryHash}:${ts}:${AA_LANE}`),
+  ).slice(0, 12);
   const payloadBytes = wa2b(CryptoJS.enc.Utf8.parse(payload));
   const cipher = gcm(new Uint8Array(keyBytes), new Uint8Array(ivBytes));
   const ciphertextWithTag = cipher.encrypt(new Uint8Array(payloadBytes));
@@ -483,32 +538,49 @@ async function testEpisodeInfos(showId, episode) {
 }
 
 async function testProviders(showId, episode) {
-  const HASH = 'f4662f4b7510b26795dd53ef824a0bf1740fbbc5d1273fab18222ac831bca8d0';
+  const HASH = 'c66a5306b7ab6cf4701e766cb352b25b70198e873c4e917f9388da75db5cdca2';
   const mapping = readProviderMapping();
   console.log(`  Providers (${showId} ep ${episode}):`);
 
   let keyMaterial;
   try {
     keyMaterial = await fetchKeys();
-    console.log(`    🔑 Clave derivada (epoch ${keyMaterial.epoch})`);
+    console.log(`    🔑 Clave derivada vía bootstrap (epoch ${keyMaterial.epoch}, build ${AA_BUILD_ID})`);
   } catch (e) {
-    console.log(`    ❌ No se pudo derivar la clave desde ${KEY_SITE}: ${e.message}`);
-    console.log('    ⚠️  El esquema de derivación pudo cambiar — revisar KEY_SITE/KEY_CDN y fetchKeys()');
+    console.log(`    ❌ No se pudo obtener partB del bootstrap: ${e.message}`);
+    console.log('    ⚠️  El build de mkissa cambió (MASK/BUILD_ID viejos) o cambió el esquema.');
+    console.log('    👉 Correr: node .claude/extract-mkissa-keys.js  y pegar las constantes AA_*');
     return { ok: false, deriveFailed: true };
   }
 
   try {
-    const res = await axios.get(`${API_BASE}/api`, {
-      headers: { ...HEADERS_GET, Referer: EPISODE_REFERER, Origin: EPISODE_REFERER },
+    const res = await axios.get(`${EPISODE_API_BASE}/api`, {
+      headers: {
+        ...HEADERS_GET,
+        Referer: EPISODE_REFERER,
+        Origin: EPISODE_REFERER,
+        'x-build-id': AA_BUILD_ID,
+      },
       timeout: 10000,
       params: {
         variables: JSON.stringify({ showId, translationType: 'sub', episodeString: episode }),
         extensions: JSON.stringify({
           persistedQuery: { version: 1, sha256Hash: HASH },
+          [AA_LANE_FIELD]: AA_LANE,
           aaReq: buildAaReqToken(HASH, keyMaterial.epoch, keyMaterial.keyBytes),
         }),
       },
     });
+
+    // PersistedQueryNotFound = cambió el TEXTO de la query del build, no la cripto.
+    const pqErr = (res.data?.errors || []).find((x) =>
+      String(x?.extensions?.code || x?.message || '').includes('PERSISTED_QUERY_NOT_FOUND')
+      || String(x?.message || '') === 'PersistedQueryNotFound');
+    if (pqErr) {
+      console.log('    ❌ PersistedQueryNotFound — el hash de la query de episodio cambió');
+      console.log('    👉 Correr: node .claude/extract-mkissa-keys.js  (campo episodeQueryHash)');
+      return { ok: false, hashValid: false };
+    }
 
     if (res.status !== 200) {
       console.log(`    ❌ HTTP ${res.status} — hash puede haber cambiado`);

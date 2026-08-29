@@ -41,25 +41,41 @@ Parsear el JSON entre los marcadores `__DIAGNOSE_JSON__` y `__END_DIAGNOSE_JSON_
   - Trending: `data.queryPopular.recommendations[].anyCard` → `{ _id, name, thumbnail }`
   - Episodios: `data.show.availableEpisodesDetail.sub[]`
 
-### `HASH_CHANGED` (requiere intervención manual)
-- El hash de `persistedQuery` en `AnimeService.getEpisodeUrl` (línea ~548) cambió
-- Decirle al usuario que busque en DevTools del browser: Network tab → filtra por `episodeString` → copia el nuevo hash del parámetro `extensions`
-- Actualizar en `src/services/AnimeService.js`
+### ⚡ Atajo para CASI TODO lo de cripto: `extract-mkissa-keys.js`
+Antes de investigar a mano cualquier fallo de la query de episodio, correr:
+```bash
+node .claude/extract-mkissa-keys.js
+```
+Desofusca el bundle vivo de mkissa y re-deriva **todas** las constantes: `buildId`, `mask`, `lane`, `bootPrefix/join/parts`, `keyGroup`, `apiBase` y el **hash de la query de episodio**. Pegar lo que salga en las constantes `AA_*` de `src/services/AnimeService.js` **y** en la copia de `.claude/diagnose-api.js` (están duplicadas a propósito: el script tiene que correr sin el bundle de RN).
+Eso arregla el caso normal (mkissa hizo un deploy nuevo). Solo si el script **falla** hay que investigar de verdad: ahí cambió el esquema, no los valores.
 
-### `AA_CRYPTO_MISSING` / `AA_CRYPTO_STALE` (esquema mkissa — clave derivada en runtime desde 2026-07-22)
-- La query de episodio (providers) exige, además del hash de `persistedQuery`, un token `aaReq` en `extensions`: AES-256-GCM de un payload `{v,ts,epoch,qh}` (¡sin `buildId` desde la migración a mkissa!), con IV = `SHA256("{epoch}:{qh}:{ts}")` (12 primeros bytes) y `ts` redondeado a ventanas de 5 min. Ver `buildAaReqToken()` en `src/services/AnimeService.js` y la misma lógica duplicada en `.claude/diagnose-api.js`.
-- **La clave AES ya NO se hardcodea — se DERIVA en runtime** (`deriveKeyMaterial()` / `fetchKeys()`): se baja el HTML de `https://mkissa.to` (`epoch` + `partB`), el `…/entry/app.<hash>.js` del build y sus primeros chunks JS (mask de 64 hex), y `clave = mask XOR partB`. El sitio se baja con fetch plano (sin Cloudflare) — no hace falta WebView.
-- El `Referer`/`Origin` para esta query específica debe ser `https://mkissa.to` (antes youtu-chan.com; `https://allmanga.to` sigue sirviendo para catálogo/trending/episodios en api.allanime.day).
-- **Cómo interpretar el fallo** (importa si cambió el ESQUEMA, no solo los valores — los valores ya se derivan solos):
-  - `AA_CRYPTO_STALE` → clave/epoch derivados quedaron viejos. La app re-deriva sola (retry en `getEpisodeUrl`); si persiste en `/diagnose`, `fetchKeys()` está sacando valores malos → revisar el HTML/regex del sitio.
-  - `AA_CRYPTO_MISSING` → falta el token o cambió su formato (¿volvió `buildId`? ¿cambió el layout token/IV?).
-  - La derivación falla (no se pudo sacar epoch/partB/app.js/mask) → cambió el build/dominio del sitio → revisar `KEY_SITE`/`KEY_CDN` y los regex de `fetchKeys` (¿mkissa cambió de dominio otra vez?).
-  - Comparar siempre con el `ani-cli` actual de `pystardust/ani-cli` (PR #1779 trajo este esquema; los maintainers esperan rotaciones frecuentes durante la transición a mkissa).
-- Requiere `@noble/ciphers` como dependencia (AES-GCM real, encrypt del token y decrypt de `tobeparsed`; `crypto-js` no soporta GCM).
+### `HASH_CHANGED` / `PersistedQueryNotFound` (ya no hace falta DevTools)
+- El hash de `persistedQuery` de la query de episodio en `AnimeService.getEpisodeUrl` cambió porque cambió el TEXTO de la query en el build.
+- **No hace falta el browser**: `extract-mkissa-keys.js` reconstruye la query desde el bundle (template `QB` + sus fragmentos) y devuelve el sha256 en `episodeQueryHash`. Ojo: el hash es del template **tal cual**, sin `.trim()` (lleva un `\n` inicial).
 
-### `DECRYPT_KEY` (el descifrado de `tobeparsed` usa la MISMA clave derivada)
-- `tobeparsed` ahora es AES-256-GCM (antes CTR): 1 byte de versión, 12 de IV, ciphertext, 16 de tag. Se descifra con la misma clave derivada del token — así que si la derivación se rompe, ambos flujos (descifrado de sourceUrls y generación de `aaReq`) se caen a la vez.
-- Si `tobeparsed` viene presente pero descifra a basura → cambió el cifrado de la RESPUESTA (¿volvió a CTR? ¿otra derivación?) — investigar contra el JS de mkissa/ani-cli.
+### `AA_CRYPTO_*` / `invalid_boot_token` (esquema bootstrap — desde 2026-08-29)
+- La query de episodio vive en **`https://api.mkissa.net/api`** (el catálogo/trending/episodios siguen en `api.allanime.day`; `api.mkissa.net` también los responde si allanime.day muere).
+- `extensions` lleva tres cosas: `persistedQuery`, el lane `k: "k7"`, y el token `aaReq`. Además el request **necesita el header `x-build-id`** (sin él: `AA_CRYPTO_MISSING_BUILD`).
+- `aaReq` = base64(`0x01` + IV + AES-256-GCM(payload)), con payload `{v,ts,epoch,buildId,qh,k}` (**`buildId` volvió** y se sumó `k`) e IV = `SHA256("{epoch}:{buildId}:{qh}:{ts}:{lane}")[:12]`, `ts` redondeado a 5 min.
+- **La clave ya NO se scrapea del HTML** (mkissa.to es ahora una landing sin `epoch`/`partB`). Ahora:
+  1. `epoch = floor(Date.now() / 604800000)` — ventana **semanal**, con 1 día de gracia (se prueban `epoch` y `epoch-1`).
+  2. `x-aa-boot = hex(HMAC(HMAC(MASK, "{bootPrefix}{buildId}"), "{epoch}~{host}~{buildId}~{lane}~{group}"))`
+  3. `GET {api}/client-crypto/v1/bootstrap?buildId=…&k=…` con headers `x-build-id` + `x-aa-boot` → `{ epoch, partB }`
+  4. `clave AES-256 = partB XOR MASK`
+- **Por qué MASK/BUILD_ID están hardcodeados ahora**: el mask ya no está en texto plano en ningún chunk — se calcula dentro del bundle ofuscado desde 4 fragmentos base64 + buildId + sales. Reproducir eso con un regex desde React Native es inviable. Lo que rota solo (`partB`/`epoch`) **sí** se sigue resolviendo en runtime vía bootstrap; lo que cambia por deploy se regenera con el extractor.
+- El `Referer`/`Origin` sigue siendo `https://mkissa.to`.
+- **⚠️ `pystardust/ani-cli` YA NO SIRVE COMO REFERENCIA**: v5 (PR #1830) abandonó AllAnime y se pasó a **anidb**; `grep -c allanime ani-cli` en master da 0. La rama `origin/allanime-fix` quedó vieja (anterior a mkissa) y el tag `v4.15` tiene el esquema de julio, ya muerto. La fuente de verdad ahora es el bundle de mkissa + este extractor.
+- **Cómo interpretar el fallo**:
+  - `bootstrap 403 invalid_boot_token` → el build cambió (MASK/BUILD_ID viejos) o cambió el cálculo del token → correr el extractor.
+  - `PersistedQueryNotFound` → cambió el texto de la query → extractor (`episodeQueryHash`).
+  - `AA_CRYPTO_MISSING_BUILD` → falta el header `x-build-id`.
+  - `AA_CRYPTO_STALE` / `AA_CRYPTO_MISSING` → cambió el layout del payload/IV del `aaReq`.
+  - El extractor mismo falla (no encuentra `entry/app.*.js`, ningún chunk con `aaReq`/`partB`, o símbolos sin resolver) → mkissa cambió de dominio/CDN o reestructuró el bundle: revisar `SITE`/`CDN` en `.claude/extract-mkissa-keys.js` y los nombres de símbolos (`sg`, `Rf`, `Vd`, `Py`, `og`, `is`, `QB`).
+- Requiere `@noble/ciphers` (AES-GCM real; `crypto-js` no soporta GCM, pero sí el `HmacSHA256` del boot token).
+
+### `DECRYPT_KEY` (el descifrado de `tobeparsed` usa la MISMA clave del bootstrap)
+- `tobeparsed` es AES-256-GCM: 1 byte de versión, 12 de IV, ciphertext, 16 de tag. Se descifra con la misma clave `partB XOR MASK` — así que si el bootstrap se rompe, ambos flujos (descifrado de sourceUrls y generación de `aaReq`) se caen a la vez.
+- Si `tobeparsed` viene presente pero descifra a basura → cambió el cifrado de la RESPUESTA (¿volvió a CTR? ¿otra derivación?) — investigar en el chunk de cripto del bundle.
 
 **4. Aplicar fixes automáticos**
 
@@ -75,6 +91,17 @@ Mostrar un resumen claro:
 - ❌ qué está roto y en qué archivo
 - 🔧 qué se auto-arregló
 - ⚠️ qué necesita intervención manual y por qué
+
+> ⚠️ **`NO_PLAYABLE_PROVIDERS` suele ser un FALSO NEGATIVO — no reportarlo como roto sin verificar.**
+> El probe profundo manda `Referer` y el CDN de Bilibili (Ak) tiene hotlink protection, así que devuelve 403 y el script lo marca `VIDEO_URL_403_CDN_TOKEN`. La app **no** manda Referer para esos links (`noReferer: true` en `VideoService.js:~300`, respetado en `VideoPlayer.js`), así que en el device sí reproducen.
+> Antes de decir que el video está roto, comprobar los dos casos sobre una URL de `rawUrls.vids`:
+> ```bash
+> curl -s -o /dev/null -w '%{http_code}\n' -r 0-1 "<url>" -A "Mozilla/5.0"                              # esperar 200/206
+> curl -s -o /dev/null -w '%{http_code}\n' -r 0-1 "<url>" -A "Mozilla/5.0" -H "Referer: https://allmanga.to"  # esperar 403
+> ```
+> 206 sin Referer + 403 con Referer = **todo bien**, es el comportamiento esperado. Solo es un problema real si da 403 en **ambos** casos.
+> (Verificado así el 2026-08-29: Ak 206/403, o sea sano.)
+> Ojo también: el `sourceUrl` de Ak decodifica a `/apivtwo/clock?...` — hay que cambiar `/clock?` por `/clock.json?` antes de pedirlo, si no da 404.
 
 ---
 
@@ -101,34 +128,20 @@ Resultado: `[{ _id: 'srGrP23qJnjsHrRYD', name: 'That Time I Got Reincarnated as 
 
 ### Paso 2 — Obtener providers de un episodio
 
-La API usa **persisted query** (GET con hash sha256) — no POST con el query completo.
+Persisted query (GET con hash sha256) contra **`api.mkissa.net`**, con lane + `aaReq` + header `x-build-id`. **No intentar armar esto a mano**: `.claude/diagnose-api.js` ya hace el bootstrap, el token y el descifrado. Para un anime/episodio puntual:
 
 ```bash
-node -e "
-const axios = require('axios').default;
-const HASH = 'd405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec';
-axios.get('https://api.allanime.day/api', {
-  headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://allmanga.to' },
-  params: {
-    variables: JSON.stringify({ showId: 'srGrP23qJnjsHrRYD', translationType: 'sub', episodeString: '6' }),
-    extensions: JSON.stringify({ persistedQuery: { version: 1, sha256Hash: HASH } })
-  }
-}).then(r => {
-  // La respuesta tiene los sourceUrls dentro de un blob cifrado en 'tobeparsed'
-  const str = JSON.stringify(r.data);
-  const m = str.match(/tobeparsed\":\"([^\"]+)\"/);
-  console.log('tobeparsed blob (primeros 80):', m ? m[1].substring(0, 80) : 'NO ENCONTRADO');
-  console.log('Status:', r.status);
-});
-"
+node .claude/diagnose-api.js --showId srGrP23qJnjsHrRYD --episode 6
 ```
 
-Si el hash cambió → HTTP 200 pero sin datos (campo vacío o error `PersistedQueryNotFound`).
-El hash actual está en `src/services/AnimeService.js` — buscar `sha256Hash`.
+Interpretación rápida de lo que puede salir mal ahí:
+- `❌ No se pudo obtener partB del bootstrap` → constantes `AA_*` viejas → `node .claude/extract-mkissa-keys.js`
+- `❌ PersistedQueryNotFound` → cambió el texto de la query → mismo extractor (`episodeQueryHash`)
+- `AA_CRYPTO_MISSING_BUILD` → falta el header `x-build-id`
 
 ### Paso 3 — Descifrar el blob tobeparsed → sourceUrls
 
-**(Esquema mkissa, 2026-07-22)** El blob es AES-256-**GCM** (1 byte versión, 12 IV, ciphertext, 16 tag) con la **clave derivada en runtime** (`mask XOR partB`, ver `deriveKeyMaterial()`/`fetchKeys()`), NO la vieja `SHA256("Xot36i3lK3:v1")` en CTR. El script `.claude/diagnose-api.js` ya deriva la clave y descifra — usarlo directamente. El plaintext viene como `{"episode":{"sourceUrls":[…]}}`.
+**(Esquema bootstrap, 2026-08-29)** El blob es AES-256-**GCM** (1 byte versión, 12 IV, ciphertext, 16 tag) con la clave `partB XOR MASK` que sale del bootstrap (ver `deriveKeyMaterial()`/`fetchKeys()`), NO la vieja `SHA256("Xot36i3lK3:v1")` en CTR ni el `mask XOR partB` scrapeado del HTML de julio. El script `.claude/diagnose-api.js` ya hace bootstrap + descifrado — usarlo directamente. El plaintext viene como `{"episode":{"sourceUrls":[…]}}`.
 
 Para inspeccionar manualmente el resultado descifrado:
 ```bash
