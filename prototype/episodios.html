@@ -1,0 +1,463 @@
+<title>Episodios sin Thumbnail</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap">
+<style>
+  /* ── Cromo de la página: sigue el tema del visor ───────────────────── */
+  :root {
+    --page-bg: #f2f3f5;
+    --page-surface: #ffffff;
+    --page-ink: #16181c;
+    --page-ink-soft: #55595f;
+    --page-ink-faint: #868b92;
+    --page-line: #dfe1e5;
+    --page-accent: #0a63c9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page-bg: #101114;
+      --page-surface: #17181c;
+      --page-ink: #eef0f3;
+      --page-ink-soft: #a8adb5;
+      --page-ink-faint: #767b83;
+      --page-line: #25272d;
+      --page-accent: #5aa5ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page-bg: #101114;
+    --page-surface: #17181c;
+    --page-ink: #eef0f3;
+    --page-ink-soft: #a8adb5;
+    --page-ink-faint: #767b83;
+    --page-line: #25272d;
+    --page-accent: #5aa5ff;
+  }
+
+  /* ── Tokens REALES de la app (src/styles/theme/colors.js) ──────────
+     La pantalla del teléfono va siempre oscura: es la app, no la página. */
+  :root {
+    --app-bg: #1a1a1a;
+    --app-surface: #2a2a2a;
+    --app-raised: #333333;
+    --app-accent: #007bff;
+    --app-text: #ffffff;
+    --app-text-2: #cccccc;
+    --app-muted: #888888;
+    --app-dim: #666666;
+    /* Semánticos: separados del acento a propósito */
+    --filler: #f59e0b;
+    --downloaded: #22c55e;
+    --watched: #6b7280;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--page-ink);
+    font-family: Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 40px 24px 72px; }
+
+  /* ── Encabezado ───────────────────────────────────────────────────── */
+  header { border-bottom: 1px solid var(--page-line); padding-bottom: 28px; margin-bottom: 36px; }
+  .eyebrow {
+    font-family: "Roboto Mono", ui-monospace, monospace;
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--page-accent); margin: 0 0 10px;
+  }
+  h1 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 900; letter-spacing: -.02em; margin: 0 0 12px; text-wrap: balance; }
+  .lede { max-width: 62ch; color: var(--page-ink-soft); font-size: 15px; margin: 0; }
+  .lede strong { color: var(--page-ink); font-weight: 500; }
+
+  .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+  .fact {
+    font-family: "Roboto Mono", monospace; font-size: 11.5px;
+    border: 1px solid var(--page-line); border-radius: 999px;
+    padding: 5px 11px; color: var(--page-ink-soft); background: var(--page-surface);
+  }
+  .fact b { color: var(--page-ink); font-weight: 700; }
+  .fact.no { color: var(--page-ink-faint); text-decoration: line-through; text-decoration-thickness: 1px; }
+
+  /* ── Rejilla de opciones ──────────────────────────────────────────── */
+  .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 32px; align-items: start; }
+
+  .option { display: flex; flex-direction: column; gap: 16px; }
+
+  .option-head { display: flex; align-items: baseline; gap: 10px; }
+  .badge-letter {
+    font-family: "Roboto Mono", monospace; font-weight: 700; font-size: 12px;
+    background: var(--page-accent); color: #fff;
+    width: 24px; height: 24px; border-radius: 6px;
+    display: grid; place-items: center; flex: none;
+  }
+  .option-head h2 { font-size: 19px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+
+  .rationale { font-size: 13.5px; color: var(--page-ink-soft); margin: 0; }
+  .rationale b { color: var(--page-ink); font-weight: 500; }
+
+  .verdict { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+  .verdict div { display: flex; gap: 8px; align-items: flex-start; }
+  .verdict .mark { font-weight: 700; flex: none; width: 14px; }
+  .yes .mark { color: #16a34a; }
+  .no  .mark { color: #dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .yes .mark { color: #4ade80; }
+    :root:not([data-theme="light"]) .no .mark { color: #f87171; }
+  }
+  :root[data-theme="dark"] .yes .mark { color: #4ade80; }
+  :root[data-theme="dark"] .no .mark { color: #f87171; }
+
+  /* ── Marco de teléfono ────────────────────────────────────────────── */
+  .phone {
+    background: var(--app-bg);
+    border: 8px solid #0b0b0b;
+    border-radius: 26px;
+    overflow: hidden;
+    box-shadow: 0 14px 34px rgba(0,0,0,.28);
+    color: var(--app-text);
+    font-size: 14px;
+    display: flex; flex-direction: column;
+    height: 560px;
+  }
+
+  .appbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; background: var(--app-bg);
+    border-bottom: 1px solid #232323; flex: none;
+  }
+  .appbar .back, .appbar .dots { color: var(--app-text-2); font-size: 18px; line-height: 1; }
+  .appbar .t { flex: 1; font-size: 14.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .screen { overflow-y: auto; flex: 1; scrollbar-width: thin; }
+
+  .sec-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 14px 14px 8px;
+  }
+  .sec-head h3 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--app-muted); }
+  .sec-head .count { font-family: "Roboto Mono", monospace; font-size: 11.5px; color: var(--app-dim); }
+
+  /* pastillas de estado, compartidas */
+  .pill {
+    font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
+    font-family: "Roboto Mono", monospace;
+  }
+  .pill-filler { color: var(--filler); border: 1px solid rgba(245,158,11,.4); background: rgba(245,158,11,.12); }
+  .pill-dl { color: var(--downloaded); border: 1px solid rgba(34,197,94,.4); background: rgba(34,197,94,.12); }
+
+  /* ══ A · Número tipográfico ═══════════════════════════════════════ */
+  .rowA {
+    display: grid; grid-template-columns: 54px 1fr auto;
+    align-items: center; gap: 12px;
+    padding: 11px 14px; border-bottom: 1px solid #232323;
+  }
+  .rowA .num {
+    font-family: "Roboto Mono", monospace; font-variant-numeric: tabular-nums;
+    font-size: 26px; font-weight: 700; color: var(--app-dim);
+    text-align: right; letter-spacing: -.03em;
+  }
+  .rowA.seen .num { color: #3a3a3a; }
+  .rowA.now .num { color: var(--app-accent); }
+  .rowA .body .title { font-size: 14.5px; }
+  .rowA.seen .body .title { color: var(--app-muted); }
+  .rowA .meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; min-height: 16px; }
+  .rowA .dots { color: var(--app-muted); font-size: 17px; }
+  .bar { height: 3px; background: #333; border-radius: 2px; margin-top: 7px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--app-accent); }
+
+  /* ══ B · Cuadrícula ═══════════════════════════════════════════════ */
+  .ranges { display: flex; gap: 6px; overflow-x: auto; padding: 10px 14px 4px; scrollbar-width: none; }
+  .ranges::-webkit-scrollbar { display: none; }
+  .range {
+    font-family: "Roboto Mono", monospace; font-size: 11.5px; white-space: nowrap;
+    padding: 5px 10px; border-radius: 6px; border: 1px solid #383838;
+    background: var(--app-surface); color: var(--app-text-2); cursor: pointer;
+  }
+  .range[aria-selected="true"] { background: var(--app-accent); border-color: var(--app-accent); color: #fff; font-weight: 700; }
+
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; padding: 10px 14px 16px; }
+  .cell {
+    position: relative; aspect-ratio: 1.35; border-radius: 8px;
+    background: var(--app-surface); border: 1px solid #383838;
+    display: grid; place-items: center;
+    font-family: "Roboto Mono", monospace; font-variant-numeric: tabular-nums;
+    font-size: 14px; font-weight: 500; color: var(--app-text-2); cursor: pointer;
+  }
+  .cell.seen { background: #202020; color: #5a5a5a; border-color: #2b2b2b; }
+  .cell.now { background: var(--app-accent); border-color: var(--app-accent); color: #fff; font-weight: 700; }
+  .cell .dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; }
+  .cell .dot.f { background: var(--filler); }
+  .cell .dot.d { background: var(--downloaded); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 14px 16px; font-size: 11px; color: var(--app-muted); }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+
+  /* ══ C · Bloques con continuar ════════════════════════════════════ */
+  .resume { margin: 12px 14px 4px; background: var(--app-surface); border: 1px solid #383838; border-radius: 10px; padding: 12px; }
+  .resume .lbl { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--app-accent); font-weight: 700; font-family: "Roboto Mono", monospace; }
+  .resume .ep { font-size: 16px; font-weight: 500; margin-top: 5px; }
+  .resume .left { font-size: 12px; color: var(--app-muted); margin-top: 3px; }
+
+  .group { padding: 14px 14px 4px; font-family: "Roboto Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--app-dim); }
+  .rowC {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-bottom: 1px solid #222;
+  }
+  .rail { width: 3px; align-self: stretch; border-radius: 2px; background: #333; flex: none; }
+  .rowC.seen .rail { background: var(--watched); }
+  .rowC.now .rail { background: var(--app-accent); }
+  .rowC.dl .rail { background: var(--downloaded); }
+  .rowC .n {
+    font-family: "Roboto Mono", monospace; font-variant-numeric: tabular-nums;
+    font-size: 13px; color: var(--app-muted); width: 30px; flex: none;
+  }
+  .rowC .t { flex: 1; font-size: 14px; }
+  .rowC.seen .t { color: var(--app-muted); }
+  .rowC .icon { color: var(--app-muted); font-size: 16px; }
+
+  footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--page-line); color: var(--page-ink-faint); font-size: 13px; }
+  footer code { font-family: "Roboto Mono", monospace; font-size: 12px; color: var(--page-ink-soft); }
+
+  a:focus-visible, .range:focus-visible, .cell:focus-visible { outline: 2px solid var(--page-accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Aniku · fuente anidb</p>
+    <h1>Tres formas de listar episodios sin miniatura</h1>
+    <p class="lede">
+      anidb <strong>no tiene thumbnails ni títulos por episodio</strong> — su API devuelve
+      solo <code>{id, number, filler}</code>. El recuadro vacío que quedó donde iba la
+      miniatura es lo que se ve raro. Estas tres opciones parten de ese hueco y lo
+      resuelven distinto. A cambio ganamos un dato que AllAnime no daba: <strong>filler</strong>.
+    </p>
+    <div class="facts">
+      <span class="fact"><b>Sí</b> número</span>
+      <span class="fact"><b>Sí</b> filler</span>
+      <span class="fact"><b>Sí</b> descargado / progreso</span>
+      <span class="fact no">miniatura</span>
+      <span class="fact no">título</span>
+      <span class="fact no">duración</span>
+    </div>
+  </header>
+
+  <div class="options">
+
+    <!-- ══════════════ A ══════════════ -->
+    <section class="option">
+      <div class="option-head">
+        <span class="badge-letter">A</span>
+        <h2>Número protagonista</h2>
+      </div>
+      <p class="rationale">
+        El número <b>ocupa el lugar de la miniatura</b>, en grande y monoespaciado.
+        En vez de disimular el hueco, lo llena con el único dato que siempre existe.
+        Es el cambio más chico sobre lo que ya hay.
+      </p>
+
+      <div class="phone">
+        <div class="appbar"><span class="back">←</span><span class="t">Slime Season 2</span><span class="dots">⋮</span></div>
+        <div class="screen">
+          <div class="sec-head"><h3>Episodios</h3><span class="count">12 · sub</span></div>
+
+          <div class="rowA seen">
+            <span class="num">25</span>
+            <div class="body"><div class="title">Episodio 25</div><div class="meta"><span class="pill pill-dl">descargado</span></div></div>
+            <span class="dots">⋮</span>
+          </div>
+          <div class="rowA seen">
+            <span class="num">26</span>
+            <div class="body"><div class="title">Episodio 26</div><div class="meta"></div></div>
+            <span class="dots">⋮</span>
+          </div>
+          <div class="rowA now">
+            <span class="num">27</span>
+            <div class="body">
+              <div class="title">Episodio 27</div>
+              <div class="bar"><i style="width:62%"></i></div>
+            </div>
+            <span class="dots">⋮</span>
+          </div>
+          <div class="rowA">
+            <span class="num">28</span>
+            <div class="body"><div class="title">Episodio 28</div><div class="meta"><span class="pill pill-filler">filler</span></div></div>
+            <span class="dots">⋮</span>
+          </div>
+          <div class="rowA">
+            <span class="num">29</span>
+            <div class="body"><div class="title">Episodio 29</div><div class="meta"></div></div>
+            <span class="dots">⋮</span>
+          </div>
+          <div class="rowA">
+            <span class="num">30</span>
+            <div class="body"><div class="title">Episodio 30</div><div class="meta"></div></div>
+            <span class="dots">⋮</span>
+          </div>
+          <div class="rowA">
+            <span class="num">31</span>
+            <div class="body"><div class="title">Episodio 31</div><div class="meta"><span class="pill pill-filler">filler</span></div></div>
+            <span class="dots">⋮</span>
+          </div>
+          <div class="rowA">
+            <span class="num">32</span>
+            <div class="body"><div class="title">Episodio 32</div><div class="meta"></div></div>
+            <span class="dots">⋮</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="verdict">
+        <div class="yes"><span class="mark">+</span><span>Se lee de un vistazo y aprovecha el ⋮ que ya existe.</span></div>
+        <div class="yes"><span class="mark">+</span><span>Cabe la barra de progreso y las pastillas sin apretar.</span></div>
+        <div class="no"><span class="mark">−</span><span>Con 1000+ episodios (One Piece) hay que hacer mucho scroll.</span></div>
+      </div>
+    </section>
+
+    <!-- ══════════════ B ══════════════ -->
+    <section class="option">
+      <div class="option-head">
+        <span class="badge-letter">B</span>
+        <h2>Cuadrícula por rangos</h2>
+      </div>
+      <p class="rationale">
+        Sin miniatura, la fila entera sobra: <b>el episodio es solo un número</b>.
+        La cuadrícula lo asume y muestra 40 de un golpe. El estado se codifica en
+        color y en un punto, no en texto.
+      </p>
+
+      <div class="phone">
+        <div class="appbar"><span class="back">←</span><span class="t">One Piece</span><span class="dots">⋮</span></div>
+        <div class="screen">
+          <div class="sec-head"><h3>Episodios</h3><span class="count">1147 · sub</span></div>
+          <div class="ranges" role="tablist">
+            <button class="range" role="tab" aria-selected="false">1–100</button>
+            <button class="range" role="tab" aria-selected="false">101–200</button>
+            <button class="range" role="tab" aria-selected="true">1001–1100</button>
+            <button class="range" role="tab" aria-selected="false">1101–1147</button>
+          </div>
+          <div class="grid">
+            <span class="cell seen">1001</span>
+            <span class="cell seen">1002</span>
+            <span class="cell seen">1003</span>
+            <span class="cell seen">1004<i class="dot f"></i></span>
+            <span class="cell seen">1005</span>
+            <span class="cell seen">1006</span>
+            <span class="cell seen">1007<i class="dot f"></i></span>
+            <span class="cell seen">1008</span>
+            <span class="cell now">1009</span>
+            <span class="cell">1010</span>
+            <span class="cell">1011<i class="dot d"></i></span>
+            <span class="cell">1012</span>
+            <span class="cell">1013</span>
+            <span class="cell">1014<i class="dot f"></i></span>
+            <span class="cell">1015</span>
+            <span class="cell">1016</span>
+            <span class="cell">1017</span>
+            <span class="cell">1018</span>
+            <span class="cell">1019</span>
+            <span class="cell">1020</span>
+            <span class="cell">1021</span>
+            <span class="cell">1022<i class="dot f"></i></span>
+            <span class="cell">1023</span>
+            <span class="cell">1024</span>
+            <span class="cell">1025</span>
+            <span class="cell">1026</span>
+            <span class="cell">1027</span>
+            <span class="cell">1028</span>
+            <span class="cell">1029</span>
+            <span class="cell">1030</span>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--app-accent)"></i>viendo</span>
+            <span><i style="background:#5a5a5a"></i>visto</span>
+            <span><i style="background:var(--filler)"></i>filler</span>
+            <span><i style="background:var(--downloaded)"></i>descargado</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="verdict">
+        <div class="yes"><span class="mark">+</span><span>Imprescindible en series largas: 40 episodios por pantalla.</span></div>
+        <div class="yes"><span class="mark">+</span><span>Los rangos evitan cargar y scrollear 1147 filas.</span></div>
+        <div class="no"><span class="mark">−</span><span>Descargar exige mantener pulsado; no hay ⋮ por celda.</span></div>
+      </div>
+    </section>
+
+    <!-- ══════════════ C ══════════════ -->
+    <section class="option">
+      <div class="option-head">
+        <span class="badge-letter">C</span>
+        <h2>Continuar y bloques</h2>
+      </div>
+      <p class="rationale">
+        Arranca por lo que casi siempre venís a hacer: <b>seguir donde ibas</b>.
+        Debajo, filas finas con una guía de color a la izquierda que lleva el estado,
+        agrupadas en bloques de 50.
+      </p>
+
+      <div class="phone">
+        <div class="appbar"><span class="back">←</span><span class="t">Slime Season 2</span><span class="dots">⋮</span></div>
+        <div class="screen">
+          <div class="resume">
+            <div class="lbl">Continuar</div>
+            <div class="ep">Episodio 27</div>
+            <div class="left">Quedan 9 min</div>
+            <div class="bar" style="margin-top:9px"><i style="width:62%"></i></div>
+          </div>
+
+          <div class="group">Episodios 25–36</div>
+          <div class="rowC seen dl"><span class="rail"></span><span class="n">25</span><span class="t">Episodio 25</span><span class="pill pill-dl">descargado</span><span class="icon">⋮</span></div>
+          <div class="rowC seen"><span class="rail"></span><span class="n">26</span><span class="t">Episodio 26</span><span class="icon">⋮</span></div>
+          <div class="rowC now"><span class="rail"></span><span class="n">27</span><span class="t">Episodio 27</span><span class="icon">⋮</span></div>
+          <div class="rowC"><span class="rail"></span><span class="n">28</span><span class="t">Episodio 28</span><span class="pill pill-filler">filler</span><span class="icon">⋮</span></div>
+          <div class="rowC"><span class="rail"></span><span class="n">29</span><span class="t">Episodio 29</span><span class="icon">⋮</span></div>
+          <div class="rowC"><span class="rail"></span><span class="n">30</span><span class="t">Episodio 30</span><span class="icon">⋮</span></div>
+          <div class="rowC"><span class="rail"></span><span class="n">31</span><span class="t">Episodio 31</span><span class="pill pill-filler">filler</span><span class="icon">⋮</span></div>
+          <div class="rowC"><span class="rail"></span><span class="n">32</span><span class="t">Episodio 32</span><span class="icon">⋮</span></div>
+          <div class="rowC"><span class="rail"></span><span class="n">33</span><span class="t">Episodio 33</span><span class="icon">⋮</span></div>
+          <div class="rowC"><span class="rail"></span><span class="n">34</span><span class="t">Episodio 34</span><span class="icon">⋮</span></div>
+        </div>
+      </div>
+
+      <div class="verdict">
+        <div class="yes"><span class="mark">+</span><span>Un toque para seguir viendo, sin buscar el episodio.</span></div>
+        <div class="yes"><span class="mark">+</span><span>Filas finas: entran ~14 por pantalla y mantiene el ⋮.</span></div>
+        <div class="no"><span class="mark">−</span><span>Necesita el historial enganchado; hoy los ids viejos no resuelven.</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <p>
+      Las tres usan los colores reales de la app (<code>#1a1a1a</code>, <code>#2a2a2a</code>,
+      acento <code>#007bff</code>, de <code>src/styles/theme/colors.js</code>). Los semánticos
+      —filler ámbar y descargado verde— son nuevos y van aparte del acento a propósito, para
+      que el estado no compita con «esto es tocable».
+    </p>
+    <p>
+      Los números de ejemplo son reales: Slime Season 2 empieza en el <b>25</b> porque anidb
+      continúa la numeración de la primera temporada.
+    </p>
+  </footer>
+</div>
+
+<script>
+  // Los rangos de la opción B cambian de selección para que se sienta real.
+  document.querySelectorAll('.ranges').forEach(function (group) {
+    group.addEventListener('click', function (event) {
+      var button = event.target.closest('.range');
+      if (!button) return;
+      group.querySelectorAll('.range').forEach(function (other) {
+        other.setAttribute('aria-selected', String(other === button));
+      });
+    });
+  });
+</script>

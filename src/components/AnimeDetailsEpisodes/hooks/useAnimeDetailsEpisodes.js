@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Animated } from "react-native";
 import { AnimeSource as AnimeService } from "../../../services/source";
+import WatchedEpisodesService from "../../../services/WatchedEpisodesService";
+import HybridHistoryService from "../../../services/HybridHistoryService";
 import { DetailsSource as AnimeDetailsService } from "../../../services/source";
 import VideoService from "../../../services/VideoService";
 import DownloadService from "../../../services/DownloadService";
@@ -458,8 +460,54 @@ const useAnimeDetailsEpisodes = ({
     loadDownloadStates();
   }, [animeId, episodes]);
 
+  // ── Vistos y "continuar" ────────────────────────────────────────────────
+  // Los vistos salen de WatchedEpisodesService (local inmediato + nube
+  // diferida). El "continuar" sale del historial que la app ya llevaba.
+  const [watchedSet, setWatchedSet] = useState(new Set());
+  const [resume, setResume] = useState({ episode: null, percent: 0 });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    WatchedEpisodesService.getWatched(animeId).then((set) => {
+      if (!cancelled) setWatchedSet(new Set(set));
+    });
+
+    HybridHistoryService.getWatching()
+      .then((list) => {
+        if (cancelled) return;
+        const entry = (list || []).find((x) => x.animeId === animeId);
+        if (entry?.currentEpisode) {
+          setResume({
+            episode: entry.currentEpisode,
+            percent: entry.progressPercent || 0,
+          });
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [animeId]);
+
+  const handleToggleWatched = async (episode) => {
+    const set = await WatchedEpisodesService.toggleWatched(animeId, episode);
+    setWatchedSet(new Set(set));
+  };
+
+  const handleMarkUpTo = async (episode) => {
+    const set = await WatchedEpisodesService.markUpTo(animeId, episode, episodes);
+    setWatchedSet(new Set(set));
+  };
+
   return {
     episodes,
+    watchedSet,
+    resumeEpisode: resume.episode,
+    resumePercent: resume.percent,
+    handleToggleWatched,
+    handleMarkUpTo,
     loadingEpisodes,
     loadingEpisodeId,
     loadingProgress,

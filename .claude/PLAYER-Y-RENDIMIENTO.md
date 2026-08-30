@@ -139,6 +139,66 @@ Las opciones **se ocultan si no hay datos** (ej. One Piece no tiene Seasons).
 
 ---
 
+## 3-ter. Lista de episodios sin miniatura + episodios vistos
+
+anidb no da miniaturas ni títulos, así que se eliminó el recuadro vacío que
+quedaba en cada fila. Bocetos de las 3 opciones en `prototype/episodios.html`;
+se eligió la **C (Continuar y bloques)** con los rangos de la B.
+
+### Una señal visual por estado
+El primer boceto codificaba el mismo estado **dos veces** (barra lateral *y*
+etiqueta de texto) y, peor, la barra solo podía mostrar uno: un episodio visto
+**y** descargado quedaba ambiguo según el orden de las clases. Corregido:
+
+| Estado | Señal — y solo esa |
+|---|---|
+| Visto | número y título **opacos** (`epDim`) + ✓ gris |
+| Descargado | **barra lateral verde** (`epRailDownloaded`) |
+| Episodio actual | número en azul + tarjeta "Continuar" arriba |
+| ~~Filler~~ | descartado: ruido, no información |
+
+La barra quedó libre para "descargado" porque "visto" se comunica con opacidad
+y "actual" ya lo anuncia la tarjeta de arriba — no hacía falta repetirlo.
+
+### Rangos
+Chips `1–50`, `51–100`… a partir de **más de 50 episodios**
+(`RANGE_THRESHOLD` en `EpisodesSection.js`). Debajo de eso la lista va entera.
+Arranca en el rango donde está el episodio que se venía viendo, no en el 1.
+
+### Episodios vistos — `src/services/WatchedEpisodesService.js`
+
+`HybridHistoryService` **no servía**: guarda una entrada por anime
+(`currentEpisode`, `progress`), o sea "vas por el 27 al 62%", pero no *qué*
+episodios viste.
+
+**Local primero, nube después:**
+1. La escritura local es **inmediata, nunca con debounce**. Si el teléfono se
+   apaga un segundo después de marcar, ya está en AsyncStorage.
+2. Lo que se difiere (4 s) es **solo la subida a Firestore**, y el "hay algo
+   pendiente" se guarda **en disco** (`PENDING_KEY`), no en memoria. Si Android
+   mata el proceso, al arrancar se ve el pendiente y se sube.
+3. También se vacía al pasar a **segundo plano** (`AppState` en `App.js` — la
+   app no tenía ningún listener de AppState hasta ahora).
+4. **Sin sesión no se pierde nada**: el pendiente NO se limpia y queda para
+   cuando el usuario entre.
+
+**Un documento por anime**, no uno por episodio:
+`watchedEpisodes/{uid}_{animeId} → { episodes: [25,26,27] }`.
+One Piece con 1000 vistos ≈ 4 KB (el límite de Firestore es 1 MiB). Marcar 30
+episodios seguidos = **una** escritura, no 30. En la lista es un `Set` en
+memoria → lookup O(1) por fila, sin costo al scrollear.
+
+**Se marca solo al 90%** (`appConfig.video.continueWatchingThreshold`, que ya
+existía) y a mano desde el ⋮. **"Marcar hasta acá"**: mantener pulsado una fila
+—o la opción del ⋮— marca ese episodio y todos los anteriores; sirve para
+ponerse al día de golpe, útil ahora que el historial viejo de AllAnime no
+resuelve contra los ids de anidb.
+
+Verificación sin device: `node .claude/check-watched.js` — cubre el apagón
+(proceso nuevo, disco intacto), el caso sin sesión y el agrupado de escrituras.
+
+---
+
 ## 4. Optimizaciones pendientes (NO implementadas)
 
 | Idea | Ganancia esperada | Riesgo |

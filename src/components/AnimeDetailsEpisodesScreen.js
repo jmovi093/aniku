@@ -33,6 +33,11 @@ const AnimeDetailsEpisodesScreen = ({ route, navigation }) => {
     downloadProgress,
     offlineMode,
     episodeInfoMap,
+    watchedSet,
+    resumeEpisode,
+    resumePercent,
+    handleToggleWatched,
+    handleMarkUpTo,
     toggleFullDetails,
     handleEpisodeSelect,
     handleDownloadAction,
@@ -95,7 +100,11 @@ const AnimeDetailsEpisodesScreen = ({ route, navigation }) => {
         offlineMode={offlineMode}
         downloadStates={downloadStates}
         downloadProgress={downloadProgress}
-        episodeInfoMap={episodeInfoMap}
+        watchedSet={watchedSet}
+        resumeEpisode={resumeEpisode}
+        resumePercent={resumePercent}
+        onToggleWatched={handleToggleWatched}
+        onMarkUpTo={handleMarkUpTo}
         loadingEpisodeId={loadingEpisodeId}
         loadingProgress={loadingProgress}
         onPlayEpisode={handleEpisodeSelect}

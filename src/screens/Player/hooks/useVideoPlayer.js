@@ -7,6 +7,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import * as NavigationBar from "expo-navigation-bar";
 import { createLogger } from "../../../utils/logger";
 import HybridHistoryService from "../../../services/HybridHistoryService";
+import WatchedEpisodesService from "../../../services/WatchedEpisodesService";
 import { pickPreferredQualityIndex } from "../../../utils/videoQuality";
 import { appConfig } from "../../../config";
 
@@ -110,8 +111,24 @@ export const useVideoPlayer = (
     };
   }, [animeName, route.params.animeId]); // currentEpisodeRef es mutable, no hace falta en deps
 
+  // ✅ Marcar como visto al superar el umbral (appConfig.video
+  // .continueWatchingThreshold, 0.9). Se marca UNA vez por episodio: el ref
+  // evita reescribir en cada tick de progreso.
+  const markedWatchedRef = useRef(null);
+  const maybeMarkWatched = (currentTime, totalDuration) => {
+    if (!totalDuration || totalDuration <= 0) return;
+    const episode = String(currentEpisodeRef.current);
+    if (markedWatchedRef.current === episode) return;
+    if (currentTime / totalDuration < appConfig.video.continueWatchingThreshold) return;
+
+    markedWatchedRef.current = episode;
+    logger.debug(`✅ Episodio ${episode} marcado como visto (umbral alcanzado)`);
+    WatchedEpisodesService.markWatched(route.params.animeId, episode).catch(() => {});
+  };
+
   // 💾 Función para guardar progreso
   const saveProgress = (currentTime, totalDuration, force = false) => {
+    maybeMarkWatched(currentTime, totalDuration);
     const now = Date.now();
     if (force || now - lastSaveTime > 10000) {
       logger.debug("💾 GUARDANDO PROGRESO:", {

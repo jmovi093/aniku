@@ -365,4 +365,82 @@ export const styles = StyleSheet.create({
     borderRadius: 4,
     opacity: 0.4,
   },
+
+  // ── Lista de episodios sin miniatura ─────────────────────────────────────
+  // Un estado, una señal: visto = opaco, descargado = barra verde,
+  // actual = número en azul.
+  epRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 11,
+    paddingRight: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#222222",
+  },
+  epRail: {
+    width: 3,
+    alignSelf: "stretch",
+    borderRadius: 2,
+    backgroundColor: "#333333",
+  },
+  epRailDownloaded: {
+    backgroundColor: "#22c55e",
+  },
+  epNumber: {
+    fontFamily: "monospace",
+    fontSize: 13,
+    color: "#888888",
+    minWidth: 34,
+    textAlign: "right",
+  },
+  epNumberCurrent: {
+    color: "#007bff",
+    fontWeight: "700",
+  },
+  epBody: { flex: 1 },
+  epTitle: { color: "#e8e8e8", fontSize: 14.5 },
+  // "Visto" se comunica SOLO con opacidad, sin etiqueta.
+  epDim: { color: "#5f6470" },
+  epStatus: { color: "#888888", fontSize: 12, marginTop: 3 },
+  epMenu: { padding: 6 },
+
+  // ── Tarjeta "Continuar" ──────────────────────────────────────────────────
+  resumeCard: {
+    backgroundColor: "#2a2a2a",
+    borderWidth: 1,
+    borderColor: "#383838",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  resumeLabel: {
+    color: "#007bff",
+    fontSize: 10.5,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+  resumeEpisode: { color: "#ffffff", fontSize: 16, marginTop: 5 },
+  resumeBar: {
+    height: 3,
+    backgroundColor: "#333333",
+    borderRadius: 2,
+    marginTop: 9,
+    overflow: "hidden",
+  },
+  resumeBarFill: { height: "100%", backgroundColor: "#007bff" },
+
+  // ── Chips de rango (solo series de más de 50 episodios) ──────────────────
+  rangeBar: { gap: 6, paddingBottom: 10 },
+  rangeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#383838",
+    backgroundColor: "#2a2a2a",
+  },
+  rangeChipActive: { backgroundColor: "#007bff", borderColor: "#007bff" },
+  rangeChipText: { color: "#cccccc", fontSize: 11.5, fontFamily: "monospace" },
+  rangeChipTextActive: { color: "#ffffff", fontWeight: "700" },
 });

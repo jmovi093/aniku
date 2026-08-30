@@ -2,6 +2,7 @@ import "react-native-gesture-handler";
 import React, { useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
+import { AppState } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 // Navegador principal con tabs
@@ -27,6 +28,7 @@ import { CloudflareBridge } from "./src/components/CloudflareBridge";
 
 // Servicios
 import DownloadService from "./src/services/DownloadService";
+import WatchedEpisodesService from "./src/services/WatchedEpisodesService";
 import HybridHistoryService from "./src/services/HybridHistoryService";
 import { createLogger, initializeLogger } from "./src/utils/logger";
 
@@ -48,6 +50,11 @@ export default function App() {
         // 🔥 Inicializar sistema híbrido de historial
         await HybridHistoryService.init();
 
+        // Subir episodios vistos que quedaron pendientes: si Android mató el
+        // proceso (o se apagó el teléfono) antes del debounce, el pendiente
+        // quedó anotado EN DISCO y se recupera acá.
+        WatchedEpisodesService.flushToCloud().catch(() => {});
+
         // 🔥 Test de Firebase - Verificar conectividad
         appLogger.info("Firebase conectado:", auth.app.name);
         appLogger.debug(
@@ -62,6 +69,17 @@ export default function App() {
     };
 
     initializeApp();
+
+    // Al pasar la app a segundo plano, subir lo pendiente ANTES de que Android
+    // pueda matar el proceso. La escritura local ya ocurrió al marcar, así que
+    // esto solo adelanta la nube: nada se pierde si igual nos matan.
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "background" || next === "inactive") {
+        WatchedEpisodesService.flushToCloud().catch(() => {});
+      }
+    });
+
+    return () => subscription.remove();
   }, []);
 
   return (
@@ -152,8 +170,8 @@ export default function App() {
       {/* Componente de alertas globales */}
       <CustomAlertComponent />
 
-      {/* Puente para orígenes con Cloudflare (fuente anidb). Invisible y lazy:
-          no carga nada hasta que un servicio llama a ensureBridgeReady(). */}
+      {/* Puente para orígenes con Cloudflare (fuente anidb). Invisible; por
+          defecto precalienta al arrancar — ver src/utils/cloudflareBridge.js. */}
       <CloudflareBridge />
     </>
   );
