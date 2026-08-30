@@ -3,8 +3,10 @@ import { ScrollView, TouchableOpacity, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import AddToListModal from "../screens/Watching/components/AddToListModal";
 import {
+  AnimeOverflowMenu,
   DetailsSection,
   EpisodesSection,
+  RelatedAnimeModal,
   styles,
   useAnimeDetailsEpisodes,
 } from "./AnimeDetailsEpisodes";
@@ -12,6 +14,11 @@ import {
 const AnimeDetailsEpisodesScreen = ({ route, navigation }) => {
   const { animeId, animeName, fromDownloads = false } = route.params;
   const [listModalVisible, setListModalVisible] = useState(false);
+  // El botón de los tres puntos abre un menú (antes iba directo a las listas):
+  // desde ahí se llega a Temporadas y Relacionados sin ocupar espacio fijo.
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [seasonsVisible, setSeasonsVisible] = useState(false);
+  const [relationsVisible, setRelationsVisible] = useState(false);
 
   const {
     episodes,
@@ -41,11 +48,27 @@ const AnimeDetailsEpisodesScreen = ({ route, navigation }) => {
     autoPlayResumeTime: route.params.autoPlayResumeTime,
   });
 
+  const relationsCount = Object.values(details?.relations || {}).reduce(
+    (total, list) => total + (list?.length || 0),
+    0,
+  );
+
+  // Navegar a otro anime: `push` (no `navigate`) para poder encadenar
+  // temporada → precuela → … y que el back vuelva paso a paso.
+  const openAnime = (anime) => {
+    setSeasonsVisible(false);
+    setRelationsVisible(false);
+    navigation.push("Episodes", {
+      animeId: anime.id,
+      animeName: anime.name,
+    });
+  };
+
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <TouchableOpacity
-          onPress={() => setListModalVisible(true)}
+          onPress={() => setMenuVisible(true)}
           style={{ padding: 8, marginRight: 4 }}
         >
           <MaterialIcons name="more-vert" size={24} color="#ffffff" />
@@ -82,6 +105,41 @@ const AnimeDetailsEpisodesScreen = ({ route, navigation }) => {
       />
 
       <View style={styles.footer} />
+
+      <AnimeOverflowMenu
+        visible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+        seasonsCount={details?.seasons?.length || 0}
+        relationsCount={relationsCount}
+        onAddToList={() => {
+          setMenuVisible(false);
+          setListModalVisible(true);
+        }}
+        onShowSeasons={() => {
+          setMenuVisible(false);
+          setSeasonsVisible(true);
+        }}
+        onShowRelations={() => {
+          setMenuVisible(false);
+          setRelationsVisible(true);
+        }}
+      />
+
+      <RelatedAnimeModal
+        visible={seasonsVisible}
+        onClose={() => setSeasonsVisible(false)}
+        title="Temporadas"
+        items={details?.seasons || []}
+        onSelect={openAnime}
+      />
+
+      <RelatedAnimeModal
+        visible={relationsVisible}
+        onClose={() => setRelationsVisible(false)}
+        title="Relacionados"
+        groups={details?.relations || {}}
+        onSelect={openAnime}
+      />
 
       <AddToListModal
         visible={listModalVisible}

@@ -110,6 +110,35 @@ Para desactivarlo: `<CloudflareBridge warmUp={false} />` (vuelve a montaje lazy)
 
 ---
 
+## 3-bis. Seasons y Relations: dónde se muestran
+
+**Decisión de UI:** no se agregaron carruseles fijos a la pantalla de detalle
+(habrían sido dos secciones más ocupando espacio permanente y renderizando
+siempre). En su lugar cuelgan del **menú de los tres puntos**, que antes abría
+directo el modal de listas:
+
+```
+⋮  →  Añadir a lista
+      Temporadas    (n)   → RelatedAnimeModal, lista plana con año
+      Relacionados  (n)   → RelatedAnimeModal, chips por tipo
+```
+
+Las opciones **se ocultan si no hay datos** (ej. One Piece no tiene Seasons).
+
+| Archivo | Rol |
+|---|---|
+| `AnimeDetailsEpisodes/components/AnimeOverflowMenu.js` | El menú ⋮ |
+| `AnimeDetailsEpisodes/components/RelatedAnimeModal.js` | Modal reusable (ambos modos) |
+
+- **Temporadas**: lista plana con año; la actual sale marcada "Viendo ahora"
+  (viene de `current: true`, que anidb marca con "Now") y no es tocable.
+- **Relacionados**: chips por tipo (`Prequel`, `Sequel`, `Side Story`, …) igual
+  que el selector del sitio, con el conteo por grupo.
+- Tocar un anime hace `navigation.push("Episodes", ...)` — **push, no navigate**,
+  para poder encadenar temporada → precuela → … y que el back vuelva paso a paso.
+
+---
+
 ## 4. Optimizaciones pendientes (NO implementadas)
 
 | Idea | Ganancia esperada | Riesgo |
