@@ -301,4 +301,31 @@ export const playerStyles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 3,
   },
+
+  // ── "Siguiente episodio" sin miniatura ───────────────────────────────────
+  // anidb no da thumbnails por episodio; antes acá iba el póster del anime en
+  // un recuadro grande que no aportaba información. Ahora lidera el número,
+  // igual que en la lista de episodios.
+  nextEpisodeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: "#2a2a2a",
+    borderWidth: 1,
+    borderColor: "#383838",
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  nextEpisodeNumber: {
+    fontFamily: "monospace",
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#007bff",
+    minWidth: 44,
+    textAlign: "right",
+  },
+  nextEpisodeInfo: { flex: 1 },
+  nextEpisodeTitle: { color: "#ffffff", fontSize: 15 },
+  nextEpisodeStatus: { color: "#888888", fontSize: 12, marginTop: 3 },
 });

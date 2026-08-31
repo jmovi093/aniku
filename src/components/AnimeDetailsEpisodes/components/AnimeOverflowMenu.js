@@ -49,6 +49,8 @@ const AnimeOverflowMenu = ({
       transparent
       animationType="fade"
       onRequestClose={onClose}
+      statusBarTranslucent
+      navigationBarTranslucent
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>

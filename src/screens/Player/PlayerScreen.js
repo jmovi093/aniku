@@ -1,7 +1,7 @@
 // screens/Player/PlayerScreen.js
 
 import React, { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Image, BackHandler } from "react-native";
+import { View, Text, TouchableOpacity, BackHandler } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { VideoPlayer } from "./components";
@@ -26,6 +26,7 @@ const PlayerScreen = ({ route, navigation }) => {
     currentVideoLinks,
     isLoadingNextEpisode,
     hasNextEpisode,
+    nextEpisodeNumber,
     setCurrentEpisodeNumber,
     setCurrentVideoLinks,
     setIsLoadingNextEpisode,
@@ -97,7 +98,9 @@ const PlayerScreen = ({ route, navigation }) => {
     onProviderExhausted: handleProviderExhausted,
   });
 
-  const nextEpisodeNum = parseInt(currentEpisodeNumber) + 1;
+  // Sale de la lista real de episodios: sumar 1 fallaba con numeración que
+  // continúa entre temporadas (Slime S2 va del 25 al 36) y con especiales.
+  const nextEpisodeNum = nextEpisodeNumber;
   const animeIdForNav = route.params.animeId;
   const currentLink =
     currentVideoLinks[selectedQuality] || currentVideoLinks[0];
@@ -167,7 +170,8 @@ const PlayerScreen = ({ route, navigation }) => {
   };
 
   const handleNextEpisode = async () => {
-    resetForNewEpisode(parseInt(currentEpisodeNumber) + 1);
+    if (!nextEpisodeNum) return;
+    resetForNewEpisode(nextEpisodeNum);
     await baseHandleNextEpisode(
       () => {},
       setSelectedQuality,
@@ -244,39 +248,32 @@ const PlayerScreen = ({ route, navigation }) => {
             <Text style={styles.episode}>Episodio {currentEpisodeNumber}</Text>
           </View>
 
-          {/* Siguiente episodio — solo si existe o aún no se sabe */}
+          {/* Siguiente episodio — sin miniatura: anidb no da thumbnails por
+              episodio, así que antes se mostraba el póster del anime en un
+              recuadro grande que no aportaba nada. Ahora lidera el número,
+              igual que en la lista de episodios. */}
           {hasNextEpisode !== false && (
             <View style={styles.nextSection}>
               <Text style={styles.nextSectionLabel}>Siguiente</Text>
               <TouchableOpacity
-                style={styles.episodeRow}
+                style={styles.nextEpisodeRow}
                 onPress={handleNextEpisode}
                 disabled={isLoadingNextEpisode}
               >
-                <View style={styles.episodeRowThumb}>
-                  {route.params.thumbnail ? (
-                    <Image
-                      source={{ uri: route.params.thumbnail }}
-                      style={styles.episodeRowThumbImg}
-                    />
-                  ) : (
-                    <View style={styles.episodeRowThumbPlaceholder}>
-                      <MaterialIcons
-                        name="play-circle-outline"
-                        size={32}
-                        color="#444"
-                      />
-                    </View>
-                  )}
-                </View>
-                <View style={styles.episodeRowInfo}>
-                  <Text style={styles.episodeRowTitle}>
+                <Text style={styles.nextEpisodeNumber}>{nextEpisodeNum}</Text>
+                <View style={styles.nextEpisodeInfo}>
+                  <Text style={styles.nextEpisodeTitle}>
                     Episodio {nextEpisodeNum}
                   </Text>
                   {isLoadingNextEpisode && (
-                    <Text style={styles.episodeRowStatus}>Cargando...</Text>
+                    <Text style={styles.nextEpisodeStatus}>Cargando…</Text>
                   )}
                 </View>
+                <MaterialIcons
+                  name={isLoadingNextEpisode ? "hourglass-empty" : "play-arrow"}
+                  size={22}
+                  color="#ffffff"
+                />
               </TouchableOpacity>
 
               <TouchableOpacity

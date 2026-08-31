@@ -199,6 +199,59 @@ Verificación sin device: `node .claude/check-watched.js` — cubre el apagón
 
 ---
 
+## 3-quater. Bugs corregidos tras probar en device
+
+### Reactividad: la pantalla no se refrescaba al volver del reproductor
+Los vistos y el "continuar" se leían en un `useEffect` que corre **una sola vez
+al montar**. Al volver del player la pantalla seguía con el estado viejo: el
+episodio recién visto no salía marcado y "Continuar" seguía apuntando al mismo.
+
+**Fix:** `useFocusEffect` en `useAnimeDetailsEpisodes` — se relee cada vez que la
+pantalla recupera el foco. Es el mecanismo de React Navigation para esto; en
+`useEffect` con `[]` no hay forma de enterarse de que volviste.
+
+### "Continuar" se quedaba en un episodio ya visto
+Salía directo del historial (`currentEpisode`), sin mirar si ya estaba visto.
+Ahora: si ese episodio **ya está marcado**, avanza al **siguiente sin ver**; si
+no queda ninguno, la tarjeta no se muestra.
+
+### 🐛 El botón "siguiente episodio" desaparecía — dos causas
+**1. Comparar número con cantidad.**
+```js
+hasNextEpisode = parseInt(episodeNumber) < totalEpisodes   // ❌
+```
+anidb **continúa la numeración entre temporadas**: Slime S2 va del **25 al 36**
+pero son **12** episodios → `25 < 12` = `false` y el botón no aparecía nunca.
+Con AllAnime funcionaba de casualidad porque casi siempre empezaba en 1.
+
+**Fix:** se pasa la **lista real** (`route.params.episodeList`) y el siguiente
+sale de `lista[index + 1]`. Soporta además numeración no contigua (especiales
+tipo `2.5`), que `+1` tampoco resolvía.
+
+**2. Un prefetch decidía si existía el siguiente.**
+El pre-fetch en segundo plano hacía `.catch(() => setHasNextEpisode(false))`,
+así que **un fallo de red 10 s después de arrancar hacía desaparecer el botón**
+a mitad de la reproducción. Que exista o no lo decide la lista; el prefetch es
+solo una optimización de caché y ya no toca ese estado.
+
+Verificación: `node .claude/check-next-episode.js`.
+
+### Franja abajo en los modales
+Los modales nuevos no tenían `statusBarTranslucent` / `navigationBarTranslucent`
+(sí los tenía `AddToListModal`, que se veía bien). Sin eso el `Modal` de Android
+no cubre toda la ventana y queda una franja con el contenido de atrás.
+
+### El ✓ de "visto"
+Quitado. La opacidad ya comunica el estado; el check era una segunda señal para
+lo mismo, justo lo que se había corregido en el resto de la fila.
+
+### "Siguiente episodio" del reproductor sin miniatura
+Mostraba el **póster del anime** en un recuadro grande (no era un thumbnail de
+episodio: eso no existe en anidb). Se rediseñó liderado por el número, igual que
+la lista de episodios.
+
+---
+
 ## 4. Optimizaciones pendientes (NO implementadas)
 
 | Idea | Ganancia esperada | Riesgo |

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import { Alert, Animated } from "react-native";
 import { AnimeSource as AnimeService } from "../../../services/source";
 import WatchedEpisodesService from "../../../services/WatchedEpisodesService";
@@ -230,6 +231,7 @@ const useAnimeDetailsEpisodes = ({
             thumbnail: details?.thumbnail || null,
             resumeTime,
             totalEpisodes: episodes.length,
+            episodeList: episodes,
             videoLinks: [
               {
                 url: episodeDownload.localPath,
@@ -270,6 +272,7 @@ const useAnimeDetailsEpisodes = ({
           thumbnail: details?.thumbnail || null,
           resumeTime,
           totalEpisodes: episodes.length,
+          episodeList: episodes,
         });
       } catch (error) {
         Alert.alert(
@@ -463,33 +466,57 @@ const useAnimeDetailsEpisodes = ({
   // ── Vistos y "continuar" ────────────────────────────────────────────────
   // Los vistos salen de WatchedEpisodesService (local inmediato + nube
   // diferida). El "continuar" sale del historial que la app ya llevaba.
+  //
+  // ⚠️ REACTIVIDAD: esto va en useFocusEffect, NO en useEffect. Antes se leía
+  // una sola vez al montar, así que al volver del reproductor la pantalla
+  // seguía mostrando el estado viejo: el episodio recién visto no aparecía
+  // marcado y "Continuar" seguía apuntando al mismo. Con useFocusEffect se
+  // vuelve a leer cada vez que la pantalla recupera el foco.
   const [watchedSet, setWatchedSet] = useState(new Set());
   const [resume, setResume] = useState({ episode: null, percent: 0 });
 
-  useEffect(() => {
-    let cancelled = false;
+  const refreshWatchState = useCallback(async () => {
+    const [set, list] = await Promise.all([
+      WatchedEpisodesService.getWatched(animeId),
+      HybridHistoryService.getWatching().catch(() => []),
+    ]);
 
-    WatchedEpisodesService.getWatched(animeId).then((set) => {
-      if (!cancelled) setWatchedSet(new Set(set));
-    });
+    const watched = new Set(set);
+    setWatchedSet(watched);
 
-    HybridHistoryService.getWatching()
-      .then((list) => {
-        if (cancelled) return;
-        const entry = (list || []).find((x) => x.animeId === animeId);
-        if (entry?.currentEpisode) {
-          setResume({
-            episode: entry.currentEpisode,
-            percent: entry.progressPercent || 0,
-          });
-        }
-      })
-      .catch(() => {});
+    const entry = (list || []).find((x) => x.animeId === animeId);
+    if (!entry?.currentEpisode) {
+      setResume({ episode: null, percent: 0 });
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [animeId]);
+    // Si el episodio del historial YA está visto, "Continuar" tiene que
+    // avanzar al siguiente sin ver — si no, se queda ofreciendo un episodio
+    // que ya terminaste.
+    const lastEpisode = String(entry.currentEpisode);
+    if (!watched.has(lastEpisode)) {
+      setResume({ episode: lastEpisode, percent: entry.progressPercent || 0 });
+      return;
+    }
+
+    const index = episodes.indexOf(lastEpisode);
+    const upcoming = index >= 0
+      ? episodes.slice(index + 1).find((ep) => !watched.has(String(ep)))
+      : episodes.find((ep) => !watched.has(String(ep)));
+
+    // Sin pendientes = serie terminada: no se muestra la tarjeta.
+    setResume({ episode: upcoming || null, percent: 0 });
+  }, [animeId, episodes]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      refreshWatchState().catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, [refreshWatchState]),
+  );
 
   const handleToggleWatched = async (episode) => {
     const set = await WatchedEpisodesService.toggleWatched(animeId, episode);

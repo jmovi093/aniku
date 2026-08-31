@@ -57,6 +57,8 @@ const PlayerSettingsSheet = ({
       animationType="fade"
       onRequestClose={onClose}
       supportedOrientations={["portrait", "landscape"]}
+      statusBarTranslucent
+      navigationBarTranslucent
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
         {/* El panel no debe cerrarse al tocarlo por dentro */}

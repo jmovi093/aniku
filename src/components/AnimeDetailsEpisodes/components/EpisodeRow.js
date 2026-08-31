@@ -11,7 +11,7 @@ import { styles } from "../styles";
 // mismo estado se codificaba dos veces (barra + etiqueta) y encima la barra solo
 // podía mostrar uno, así que un episodio visto Y descargado quedaba ambiguo:
 //
-//   visto       → número y título opacos
+//   visto       → número y título opacos (sin check: el ✓ era ruido)
 //   descargado  → barra lateral verde
 //   actual      → número en azul (además de la tarjeta "Continuar" de arriba)
 //
@@ -95,10 +95,6 @@ const EpisodeRow = ({
           <Text style={styles.epStatus}>Descargando {progress}%</Text>
         )}
       </View>
-
-      {isWatched && !isThisEpisodeLoading && (
-        <MaterialIcons name="check" size={16} color="#6b7280" />
-      )}
 
       {offlineMode ? (
         isDownloaded && (

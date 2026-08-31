@@ -21,11 +21,27 @@ export const useEpisodeManager = (
   const [isLoadingNextEpisode, setIsLoadingNextEpisode] = useState(false);
   const [showLoadingAlert, setShowLoadingAlert] = useState(false);
 
-  // true  = existe    (mostrar sección "Siguiente")
-  // false = no existe / desconocido (ocultar — mejor no mostrar que mostrar de más)
-  const totalEpisodes = route.params?.totalEpisodes;
+  // ⚠️ Antes esto comparaba el NÚMERO de episodio contra la CANTIDAD:
+  //     parseInt(episodeNumber) < totalEpisodes
+  // Con anidb la numeración continúa entre temporadas (Slime S2 va del 25 al
+  // 36, pero son 12 episodios), así que "25 < 12" daba false y el botón de
+  // siguiente desaparecía. Con AllAnime funcionaba de casualidad porque casi
+  // siempre empezaba en 1.
+  // Ahora se usa la LISTA real de episodios, que además soporta numeración no
+  // contigua (especiales tipo 26.5).
+  const episodeList = (route.params?.episodeList || []).map(String);
+
+  const indexOfEpisode = (episode) =>
+    episodeList.indexOf(String(episode));
+
+  const nextEpisodeAfter = (episode) => {
+    const index = indexOfEpisode(episode);
+    if (index === -1 || index >= episodeList.length - 1) return null;
+    return episodeList[index + 1];
+  };
+
   const [hasNextEpisode, setHasNextEpisode] = useState(
-    totalEpisodes ? parseInt(initialEpisodeNumber, 10) < totalEpisodes : false,
+    () => nextEpisodeAfter(initialEpisodeNumber) !== null,
   );
 
   // 🎬 Cargar próximo episodio
@@ -36,7 +52,14 @@ export const useEpisodeManager = (
     setDuration,
     setHasInitialLoad,
   ) => {
-    const nextEpisodeNum = parseInt(currentEpisodeNumber) + 1;
+    // El siguiente sale de la lista, no de sumar 1: puede haber saltos o
+    // especiales decimales.
+    const nextEpisodeNum = nextEpisodeAfter(currentEpisodeNumber);
+    if (!nextEpisodeNum) {
+      logger.debug("⛔ No hay episodio siguiente en la lista");
+      setHasNextEpisode(false);
+      return;
+    }
 
     setIsLoadingNextEpisode(true);
     setShowLoadingAlert(true);
@@ -47,7 +70,7 @@ export const useEpisodeManager = (
 
       const videoLinks = await AnimeService.getOptimizedVideoLinks(
         route.params.animeId,
-        nextEpisodeNum.toString(),
+        String(nextEpisodeNum),
         "sub",
       );
 
@@ -62,7 +85,7 @@ export const useEpisodeManager = (
         setCurrentTime(0);
         setDuration(0);
         setHasInitialLoad(false);
-        setHasNextEpisode(totalEpisodes ? nextEpisodeNum < totalEpisodes : false);
+        setHasNextEpisode(nextEpisodeAfter(nextEpisodeNum) !== null);
         logger.debug(`✅ PRÓXIMO EPISODIO ${nextEpisodeNum} LISTO: ${videoLinks.length} enlaces`);
         setTimeout(() => { setIsPlaying(true); }, 500);
       } else {
@@ -78,22 +101,26 @@ export const useEpisodeManager = (
     }
   };
 
-  // 🔮 Pre-fetch silencioso del siguiente episodio
-  // Se activa 10s después de que arranque cada episodio para calentar
-  // la caché de providers. No bloquea nada; los errores se ignoran.
+  // 🔮 Pre-fetch silencioso del siguiente episodio: calienta la caché de
+  // providers 10 s después de arrancar. No bloquea nada.
+  //
+  // ⚠️ Antes este efecto hacía `.then(setHasNextEpisode(true))` /
+  // `.catch(setHasNextEpisode(false))`, así que un fallo de red del prefetch
+  // hacía DESAPARECER el botón de "siguiente" a mitad de la reproducción,
+  // aunque el episodio existiera. Que exista o no lo decide la LISTA; el
+  // prefetch es solo una optimización y ya no toca ese estado.
   useEffect(() => {
     const animeId = route.params?.animeId;
     if (!currentEpisodeNumber || !animeId) return;
 
-    const nextEp = String(parseInt(currentEpisodeNumber, 10) + 1);
+    const nextEp = nextEpisodeAfter(currentEpisodeNumber);
+    if (!nextEp) return;
 
     const timer = setTimeout(() => {
       logger.debug(`🔮 Pre-fetch background: ep ${nextEp}`);
-      VideoStreamService.getVideoLinksForEpisode(animeId, nextEp, "sub", {
+      VideoStreamService.getVideoLinksForEpisode(animeId, String(nextEp), "sub", {
         silent: true,
-      })
-        .then(() => setHasNextEpisode(true))
-        .catch(() => setHasNextEpisode(false));
+      }).catch(() => {});
     }, 10_000);
 
     return () => clearTimeout(timer);
@@ -106,6 +133,8 @@ export const useEpisodeManager = (
     isLoadingNextEpisode,
     showLoadingAlert,
     hasNextEpisode,
+    // El siguiente REAL según la lista (no currentEpisode + 1)
+    nextEpisodeNumber: nextEpisodeAfter(currentEpisodeNumber),
 
     // Setters
     setCurrentEpisodeNumber,
