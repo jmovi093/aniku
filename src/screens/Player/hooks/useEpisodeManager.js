@@ -5,7 +5,6 @@ import { createLogger } from "../../../utils/logger";
 
 import { useState, useEffect } from "react";
 import { AnimeSource as AnimeService } from "../../../services/source";
-import VideoStreamService from "../../../services/VideoStreamService";
 import { pickPreferredQualityIndex } from "../../../utils/videoQuality";
 import { appConfig } from "../../../config";
 
@@ -117,10 +116,12 @@ export const useEpisodeManager = (
     if (!nextEp) return;
 
     const timer = setTimeout(() => {
+      // ⚠️ Antes usaba VideoStreamService, que llama DIRECTO al AnimeService
+      // viejo de AllAnime (desconectado) — con un animeId de anidb esto
+      // siempre fallaba en silencio, así que el pre-fetch nunca calentaba
+      // nada de verdad.
       logger.debug(`🔮 Pre-fetch background: ep ${nextEp}`);
-      VideoStreamService.getVideoLinksForEpisode(animeId, String(nextEp), "sub", {
-        silent: true,
-      }).catch(() => {});
+      AnimeService.getOptimizedVideoLinks(animeId, String(nextEp), "sub").catch(() => {});
     }, 10_000);
 
     return () => clearTimeout(timer);

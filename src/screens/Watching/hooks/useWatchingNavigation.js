@@ -3,9 +3,9 @@ import { createLogger } from "../../../utils/logger";
 // screens/Watching/hooks/useWatchingNavigation.js
 // Hook para navegación y acciones en watching
 
+import { Alert } from "react-native";
 import { AnimeSource as AnimeService } from "../../../services/source";
 import HybridHistoryService from "../../../services/HybridHistoryService";
-import VideoStreamService from "../../../services/VideoStreamService";
 import { CustomAlert } from "../../../components/CustomAlert";
 
 /**
@@ -52,12 +52,16 @@ export const useWatchingNavigation = (navigation) => {
         logger.debug(
           "🎥 Obteniendo enlaces y validando episodio en paralelo...",
         );
+        // ⚠️ Antes esto pasaba por VideoStreamService, que importa DIRECTO el
+        // AnimeService viejo de AllAnime (desconectado desde la migración a
+        // anidb) — con un animeId de anidb esa llamada siempre fallaba en
+        // silencio, así que "continuar viendo" nunca reproducía directo y
+        // terminaba siempre en el fallback de abajo (navegar a Episodes).
         const [videoLinks, episodesList] = await Promise.all([
-          VideoStreamService.getVideoLinksForEpisode(
+          AnimeService.getOptimizedVideoLinks(
             anime.animeId,
             nextEpisode.episode,
             "sub",
-            { silent: true },
           ).catch(() => null), // capturar sin romper Promise.all
           AnimeService.getEpisodesList(anime.animeId),
         ]);
@@ -120,9 +124,10 @@ export const useWatchingNavigation = (navigation) => {
       } else {
         // Continuar en el episodio actual — solo necesitamos los enlaces
         logger.debug("🎥 Obteniendo enlaces de video...");
-        const videoLinks = await VideoStreamService.getVideoLinksForEpisode(
+        const videoLinks = await AnimeService.getOptimizedVideoLinks(
           anime.animeId,
           nextEpisode.episode,
+          "sub",
         );
 
         if (!videoLinks || videoLinks.length === 0) {

@@ -1,9 +1,6 @@
 // components/ui/index.js
 // Exportaciones centralizadas de componentes UI base
 
-//  Buttons
-export { default as Button } from "./Button";
-
 //  Cards
 export { default as Card } from "./Card";
 

@@ -5,7 +5,6 @@ import { AnimeSource as AnimeService } from "../../../services/source";
 import WatchedEpisodesService from "../../../services/WatchedEpisodesService";
 import HybridHistoryService from "../../../services/HybridHistoryService";
 import { DetailsSource as AnimeDetailsService } from "../../../services/source";
-import VideoService from "../../../services/VideoService";
 import DownloadService from "../../../services/DownloadService";
 import { CustomAlert } from "../../CustomAlert";
 import { createLogger } from "../../../utils/logger";
@@ -455,7 +454,6 @@ const useAnimeDetailsEpisodes = ({
 
     return () => {
       DownloadService.removeDownloadListener(downloadListener);
-      VideoService.clearJsonCache();
     };
   }, []);
 

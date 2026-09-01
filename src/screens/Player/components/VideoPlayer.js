@@ -184,13 +184,16 @@ const VideoPlayer = ({
     const proxyUrl = registerProxyUrl(token, currentLink.url, {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-      ...(currentLink.noReferer
-        ? {}
-        : {
-            Referer: currentLink.requiresReferer
-              ? "https://allanime.day/"
-              : "https://allmanga.to",
-          }),
+      // `requiresReferer`/`noReferer` los setea el pipeline VIEJO de AllAnime
+      // (AnimeService.js/VideoService.js, hoy desconectado). La fuente activa
+      // (anidb, hls.anidb.app) no setea ninguno de los dos y NO exige Referer
+      // — verificado en vivo: 200/206 con y sin header, con cualquier valor.
+      // Antes el "default" mandaba igual `Referer: allmanga.to`, un dominio
+      // ajeno al CDN actual. Ahora solo se manda si el link lo pide de forma
+      // explícita (caso AllAnime, por si se reconecta esa fuente).
+      ...(currentLink.requiresReferer
+        ? { Referer: "https://allanime.day/" }
+        : {}),
     });
     castProxyTokenRef.current = token;
 
@@ -516,13 +519,16 @@ const VideoPlayer = ({
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-      ...(currentLink.noReferer
-        ? {}
-        : {
-            Referer: currentLink.requiresReferer
-              ? "https://allanime.day/"
-              : "https://allmanga.to",
-          }),
+      // `requiresReferer`/`noReferer` los setea el pipeline VIEJO de AllAnime
+      // (AnimeService.js/VideoService.js, hoy desconectado). La fuente activa
+      // (anidb, hls.anidb.app) no setea ninguno de los dos y NO exige Referer
+      // — verificado en vivo: 200/206 con y sin header, con cualquier valor.
+      // Antes el "default" mandaba igual `Referer: allmanga.to`, un dominio
+      // ajeno al CDN actual. Ahora solo se manda si el link lo pide de forma
+      // explícita (caso AllAnime, por si se reconecta esa fuente).
+      ...(currentLink.requiresReferer
+        ? { Referer: "https://allanime.day/" }
+        : {}),
     },
   };
 

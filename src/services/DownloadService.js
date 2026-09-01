@@ -313,7 +313,14 @@ class DownloadService {
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-          Referer: "https://allmanga.to",
+          // Antes mandaba siempre `Referer: allmanga.to`, un dominio de
+          // AllAnime, a CUALQUIER descarga — incluidas las de anidb
+          // (hls.anidb.app), que no lo pide y no lo necesita (verificado en
+          // vivo). Mismo criterio que VideoPlayer.js: solo se manda si el
+          // link lo pide de forma explícita (caso AllAnime legacy).
+          ...(videoLink.requiresReferer
+            ? { Referer: "https://allanime.day/" }
+            : {}),
         },
         isAllowedOverRoaming: true,
         isAllowedOverMetered: true,
