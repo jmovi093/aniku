@@ -318,9 +318,11 @@ class DownloadService {
           // (hls.anidb.app), que no lo pide y no lo necesita (verificado en
           // vivo). Mismo criterio que VideoPlayer.js: solo se manda si el
           // link lo pide de forma explícita (caso AllAnime legacy).
-          ...(videoLink.requiresReferer
-            ? { Referer: "https://allanime.day/" }
-            : {}),
+          ...(videoLink.referer
+        ? { Referer: videoLink.referer }
+        : videoLink.requiresReferer
+          ? { Referer: "https://allanime.day/" }
+          : {}),
         },
         isAllowedOverRoaming: true,
         isAllowedOverMetered: true,

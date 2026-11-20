@@ -3,86 +3,74 @@ import { createLogger } from "../../utils/logger";
 // services/source/index.js
 // Capa de adaptación entre las pantallas y la fuente de anime activa.
 //
-// ─── POR QUÉ EXISTE ─────────────────────────────────────────────────────────
-// Las pantallas antes importaban AnimeService/CatalogService/ScheduleService
-// (AllAnime) directamente. Ahora importan de acá, y este módulo decide qué
-// fuente usar. Así cambiar de proveedor es una constante, no una refactor.
-//
-// Cada export replica EXACTAMENTE la firma y la forma de retorno que las
-// pantallas ya esperaban con AllAnime, para no tener que tocar componentes:
+// Las pantallas importan de acá, y este módulo decide qué fuente usar. Cada
+// export replica la firma y la forma de retorno que las pantallas ya esperaban:
 //   - cards de catálogo/búsqueda → { id, name, englishName, thumbnail,
 //     episodes, type, score, year, description, ... }
 //   - lista de episodios         → ["1","2","3"]  (strings ordenados)
 //   - episode infos              → { [numero]: { thumbnail, notes, hasSub, hasDub } }
-//   - links de video             → [{ url, quality, type, source }]
+//   - links de video             → [{ url, quality, type, source, referer }]
 //
 // ─── ESTADO ─────────────────────────────────────────────────────────────────
-// FUENTE ACTIVA: anidb.app (la misma que ani-cli v5).
-// AllAnime/mkissa quedó DESCONECTADO a propósito: sus servicios siguen en
-// `src/services/AnimeService.js`, `CatalogService.js`, `ScheduleService.js` y
-// `AnimeDetailsService.js` como REFERENCIA (no los borres), pero ya nadie los
-// importa. Para volver a ellos hay que reconectarlos acá.
+// FUENTE ACTIVA: hianime (la misma que usa ani-cli desde su PR #1897).
+// anidb.app murió (redirige a otro sitio) y quedó reemplazada; AnidbService.js
+// y los servicios de AllAnime siguen en el repo solo como REFERENCIA.
+// Ver HianimeService.js para el mapeo de endpoints.
 //
-// Ver `.claude/ANIDB-SOURCE.md` para el mapeo completo de endpoints y los
-// huecos conocidos de esta fuente.
+// Huecos conocidos de hianime: no hay calendario semanal (/schedule da 404),
+// ni thumbnails/títulos por episodio, y la búsqueda por texto solo trae una
+// página de resultados.
 
 import { appConfig } from "../../config";
-import AnidbService, {
-  ANIDB_GENRES,
-  ANIDB_SEASONS,
-  ANIDB_SORTS,
-  ANIDB_STATUSES,
-  ANIDB_TYPES,
-} from "../AnidbService";
+import AllAnimeService from "../AnimeService";
+import AllAnimeCatalogService from "../CatalogService";
+import AllAnimeDetailsService from "../AnimeDetailsService";
+import AllAnimeScheduleService from "../ScheduleService";
+import { GENRES as ALLANIME_GENRES, SEASONS as ALLANIME_SEASONS } from "../../utils/apiConfig";
+import HianimeService, {
+  HIANIME_GENRES,
+  HIANIME_SORTS,
+  HIANIME_STATUSES,
+  HIANIME_TYPES,
+} from "../HianimeService";
 
 const SOURCE = appConfig.source;
 
 /**
  * Taxonomía de la fuente activa, para que la UI de filtros ofrezca EXACTAMENTE
  * lo que la fuente entiende.
- *
- * ⚠️ Antes la pantalla Search tomaba `GENRES` de `utils/apiConfig.js`, que es
- * la lista de **AllAnime** ("Isekai", "Shounen", "Mecha", "Vampire"…). En anidb
- * esos no son géneros sino themes o demographics, así que el filtro se
- * ignoraba en silencio. Los ids del mapa SÍ estaban bien; lo que estaba mal era
- * la lista de nombres que se le mostraba al usuario.
- * `utils/apiConfig.js` se deja intacto porque pertenece a la fuente vieja.
  */
-export const SourceTaxonomy = {
-  // 21 géneros, ids verificados contra el <select> del sitio.
-  genres: Object.values(ANIDB_GENRES),
+const HianimeTaxonomy = {
+  genres: Object.values(HIANIME_GENRES),
   seasons: ["Winter", "Spring", "Summer", "Fall"],
-  types: ANIDB_TYPES,
-  statuses: ANIDB_STATUSES,
-  // el <select> del sitio va de 2026 a 1925
-  years: Array.from({ length: new Date().getFullYear() - 1925 + 1 },
-    (_, i) => new Date().getFullYear() - i),
+  types: HIANIME_TYPES,
+  statuses: HIANIME_STATUSES,
+  years: Array.from(
+    { length: new Date().getFullYear() + 1 - 2006 + 1 },
+    (_, i) => new Date().getFullYear() + 1 - i,
+  ),
   sorts: [
-    { value: "order_trending", label: "Trending" },
-    { value: "order_top", label: "Top Rated" },
-    { value: "order_updated", label: "Latest Updated" },
-    { value: "order_popular", label: "Most Popular" },
-    { value: "order_favorite", label: "Most Favorited" },
-    { value: "order_top_airing", label: "Top Airing" },
-    { value: "title", label: "Title A-Z" },
-    { value: "aired_start", label: "Newest First" },
+    { value: HIANIME_SORTS.trending, label: "Trending" },
+    { value: HIANIME_SORTS.score, label: "Top Rated" },
+    { value: HIANIME_SORTS.updated, label: "Latest Updated" },
+    { value: HIANIME_SORTS.popular, label: "Most Watched" },
+    { value: HIANIME_SORTS.followed, label: "Most Followed" },
+    { value: HIANIME_SORTS.titleAZ, label: "Title A-Z" },
+    { value: HIANIME_SORTS.newest, label: "Newest First" },
   ],
-  // anidb NO soporta combinar géneros: probado con `1,14`, `genres=1&genres=14`,
-  // `1|14` y `1+14` — el servidor toma uno solo; con `genres[]=…` devuelve 0.
-  // Si el usuario elige varios, se aplica el primero.
+  // /genres/<slug> admite un solo género; si el usuario elige varios se
+  // aplica el primero.
   supportsMultiGenre: false,
 };
 
+const genreSlug = (genreName) => {
+  const entry = Object.entries(HIANIME_GENRES).find(
+    ([, name]) => name.toLowerCase() === String(genreName).toLowerCase(),
+  );
+  return entry ? entry[0] : null;
+};
+
 // ─── normalización de cards ─────────────────────────────────────────────────
-// anidb devuelve { id, title, thumbnail, type, score }; la UI espera los campos
-// de AllAnime. Los que anidb no da en el listado quedan null — la UI ya los
-// trata como opcionales (se llenan al abrir el detalle).
-//
-// ⚠️ `episodes: null` es a propósito: la card de /browse NO trae cantidad de
-// episodios (verificado sobre el HTML real — solo hay póster, título, badge de
-// tipo y badge de nota). Por eso las tarjetas muestran "n/a" en ese campo. La
-// única forma de tenerlo sería pedir el detalle de CADA anime del listado, o
-// sea decenas de requests por pantalla; no vale la pena.
 function toCard(item) {
   return {
     id: item.id,
@@ -90,15 +78,15 @@ function toCard(item) {
     // algunos consumidores (isAnimeDataComplete) miran `title`, no `name`
     title: item.title,
     englishName: item.title,
-    nativeName: null,
+    nativeName: item.nativeName || null,
     thumbnail: item.thumbnail,
-    episodes: null,
-    description: null,
-    score: item.score ?? null,
+    episodes: item.episodes ?? null,
+    description: item.description || null,
+    score: null,
     type: item.type || "TV",
     year: null,
     season: null,
-    episodeCount: null,
+    episodeCount: item.episodes ?? null,
     airedStart: null,
     views: null,
   };
@@ -107,49 +95,30 @@ function toCard(item) {
 const toCards = (list) => (Array.isArray(list) ? list.map(toCard) : []);
 
 // ─── catálogo (pantalla Home) ───────────────────────────────────────────────
-export const CatalogSource = {
-  // anidb no distingue "daily/weekly": su ranking de trending es uno solo.
-  // Se mapea daily→trending y weekly→popular para que Home siga teniendo dos
-  // carruseles distintos y con contenido diferente.
+const HianimeCatalog = {
   async getPopularDaily(limit = 20) {
-    return toCards(await AnidbService.getTrending()).slice(0, limit);
+    return toCards(await HianimeService.getTrending()).slice(0, limit);
   },
 
   async getPopularWeekly(limit = 20) {
-    return toCards(await AnidbService.getPopular()).slice(0, limit);
+    return toCards(await HianimeService.getPopular()).slice(0, limit);
   },
 
   async getPopularMonthly(limit = 20) {
-    return toCards(
-      await AnidbService.browse({ sort: ANIDB_SORTS.top }),
-    ).slice(0, limit);
+    return toCards(await HianimeService.getMostFavorite()).slice(0, limit);
   },
 
   async getCurrentSeasonAnime(limit = 26) {
-    const now = new Date();
-    const quarter = ["winter", "winter", "spring", "spring", "spring", "summer",
-      "summer", "summer", "fall", "fall", "fall", "winter"][now.getMonth()];
-    const year = now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear();
-    return toCards(
-      await AnidbService.browse({
-        season: quarter,
-        year,
-        sort: ANIDB_SORTS.popular,
-      }),
-    ).slice(0, limit);
+    return toCards(await HianimeService.getTopAiring()).slice(0, limit);
   },
 
   async getAnimeByGenre(genreName, limit = 26, page = 1) {
-    const entry = Object.entries(ANIDB_GENRES).find(
-      ([, name]) => name.toLowerCase() === String(genreName).toLowerCase(),
-    );
-    if (!entry) {
-      logger.warn(`⚠️ Género desconocido en anidb: ${genreName}`);
+    const slug = genreSlug(genreName);
+    if (!slug) {
+      logger.warn(`⚠️ Género desconocido en hianime: ${genreName}`);
       return [];
     }
-    return toCards(
-      await AnidbService.getByGenre(entry[0], { page }),
-    ).slice(0, limit);
+    return toCards(await HianimeService.getByGenre(slug, { page })).slice(0, limit);
   },
 
   getActionAnime(limit = 26, page = 1) {
@@ -169,22 +138,21 @@ export const CatalogSource = {
   },
 
   getAvailableGenres() {
-    return Object.values(ANIDB_GENRES);
+    return Object.values(HIANIME_GENRES);
   },
 };
 
 // ─── búsqueda, detalle, episodios y video ───────────────────────────────────
-export const AnimeSource = {
+const HianimeAnime = {
   async searchAnime(query, limit = 26, page = 1) {
-    return toCards(await AnidbService.search(query, page)).slice(0, limit);
+    return toCards(await HianimeService.search(query, page)).slice(0, limit);
   },
 
   /**
    * Búsqueda con filtros.
    *
    * ⚠️ CONTRATO: devuelve `{ results, pagination }`, NO un array. La pantalla
-   * Search hace `const { results, pagination } = await ...` y si esto devuelve
-   * un array revienta con "Cannot read property 'length' of undefined".
+   * Search hace `const { results, pagination } = await ...`.
    */
   async searchAnimeAdvanced(filters = {}, limit = 26, page = 1) {
     const params = { query: filters.query || filters.search || "", page };
@@ -197,8 +165,8 @@ export const AnimeSource = {
     const sortBy = filters.sortBy || filters.sort;
     if (sortBy) {
       params.sort =
-        ANIDB_SORTS[sortBy] ||
-        { Top: ANIDB_SORTS.top, Recent: ANIDB_SORTS.newest }[sortBy] ||
+        { Top: HIANIME_SORTS.score, Recent: HIANIME_SORTS.updated }[sortBy] ||
+        Object.values(HIANIME_SORTS).find((v) => v && v === sortBy) ||
         undefined;
     }
 
@@ -210,55 +178,48 @@ export const AnimeSource = {
 
     const genreName = Array.isArray(filters.genres) ? filters.genres[0] : filters.genre;
     if (genreName) {
-      const entry = Object.entries(ANIDB_GENRES).find(
-        ([, name]) => name.toLowerCase() === String(genreName).toLowerCase(),
-      );
-      if (entry) params.genre = entry[0];
+      const slug = genreSlug(genreName);
+      if (slug) params.genre = slug;
     }
 
-    const all = toCards(await AnidbService.browse(params));
-    const results = all.slice(0, limit);
+    const { cards, hasNext } = await HianimeService.browse(params);
+    const results = toCards(cards).slice(0, limit);
 
-    // anidb no expone un total de resultados. Se devuelve una COTA INFERIOR:
-    // si vino una página llena, sabemos que hay al menos una más, y con eso la
-    // pantalla habilita el "cargar más". No es el total real y no se muestra
-    // como tal — solo alimenta la condición de paginación del hook.
-    const isFullPage = all.length >= limit;
+    // hianime no expone un total de resultados: se devuelve una COTA INFERIOR
+    // que solo alimenta la condición de "cargar más" del hook.
     return {
       results,
       pagination: {
-        total: isFullPage ? page * limit + 1 : (page - 1) * limit + results.length,
+        total: hasNext ? page * limit + 1 : (page - 1) * limit + results.length,
         currentResults: results.length,
-        hasNextPage: isFullPage,
+        hasNextPage: hasNext,
         currentPage: page,
-        totalPages: isFullPage ? page + 1 : page,
+        totalPages: hasNext ? page + 1 : page,
       },
     };
   },
 
   async getAnimeDetails(animeId) {
-    return AnidbService.getAnimeDetails(animeId);
+    return HianimeService.getAnimeDetails(animeId);
   },
 
   async getEpisodesList(animeId) {
-    return AnidbService.getEpisodeNumbers(animeId);
+    return HianimeService.getEpisodeNumbers(animeId);
   },
 
   /**
-   * anidb NO tiene títulos ni thumbnails por episodio (su API solo devuelve
-   * {id, number, number2, filler}). Se devuelve el mapa con `filler` y sin
-   * thumbnail/notes: la UI ya trata ambos como opcionales.
-   * Ver el hueco documentado en .claude/ANIDB-SOURCE.md.
+   * hianime NO tiene títulos ni thumbnails por episodio. Se devuelve el mapa
+   * sin thumbnail/notes: la UI ya trata ambos como opcionales.
    */
   async getEpisodeInfos(animeId) {
     const infoMap = {};
     try {
-      const episodes = await AnidbService.getEpisodes(animeId);
+      const episodes = await HianimeService.getEpisodes(animeId);
       episodes.forEach((ep) => {
         infoMap[ep.number] = {
           thumbnail: null,
           notes: null,
-          filler: ep.filler,
+          filler: false,
           hasSub: true,
           hasDub: false,
         };
@@ -271,24 +232,17 @@ export const AnimeSource = {
 
   /**
    * Audios disponibles para un episodio (para el selector sub/dub del player).
-   * anidb devuelve `jpn` (subtitulado) y/o `eng` (doblado); si solo hay uno,
-   * la UI oculta el selector.
+   * Si solo hay uno, la UI oculta el selector.
    * @returns {Promise<Array<{value:"sub"|"dub", label:string, code:string}>>}
    */
   async getEpisodeAudioOptions(animeId, episodeNumber) {
     try {
-      const episodes = await AnidbService.getEpisodes(animeId);
-      const episode = episodes.find(
-        (ep) => String(ep.number) === String(episodeNumber),
-      );
-      if (!episode) return [];
-
-      const languages = await AnidbService.getEpisodeLanguages(episode.id);
+      const types = await HianimeService.getEpisodeAudioTypes(animeId, episodeNumber);
       const options = [];
-      if (languages.some((l) => l.code === "jpn")) {
+      if (types.includes("sub")) {
         options.push({ value: "sub", label: "Sub (japonés)", code: "jpn" });
       }
-      if (languages.some((l) => l.code === "eng")) {
+      if (types.includes("dub")) {
         options.push({ value: "dub", label: "Dub (inglés)", code: "eng" });
       }
       return options;
@@ -299,7 +253,7 @@ export const AnimeSource = {
   },
 
   async getOptimizedVideoLinks(animeId, episodeString, translationType = "sub") {
-    const links = await AnidbService.getVideoLinks(
+    const links = await HianimeService.getVideoLinks(
       animeId,
       episodeString,
       translationType,
@@ -316,39 +270,21 @@ export const AnimeSource = {
       episodeString,
       translationType,
     );
-    // Sin mp4 directo en anidb: todo es HLS. Se devuelve la mejor calidad.
+    // Todo es HLS: se devuelve la mejor calidad.
     return links[0];
   },
 };
 
 // ─── detalle (componente AnimeDetails) ──────────────────────────────────────
-export const DetailsSource = {
-  getAnimeDetails: (animeId) => AnidbService.getAnimeDetails(animeId),
+const HianimeDetails = {
+  getAnimeDetails: (animeId) => HianimeService.getAnimeDetails(animeId),
 };
 
 // ─── calendario ─────────────────────────────────────────────────────────────
 const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const DAY_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
-// YYYY-MM-DD en hora LOCAL. No usar toISOString(): eso pasa a UTC y puede
-// correr el día (de noche en América daría el día siguiente).
-function toLocalDateString(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-// Zona del dispositivo, para que anidb corte los días donde el usuario los ve.
-function deviceTimeZone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-export const ScheduleSource = {
+const HianimeSchedule = {
   /** Últimos 7 días hasta hoy — lógica de fechas pura, igual que antes. */
   getAvailableDays() {
     const today = new Date();
@@ -369,40 +305,57 @@ export const ScheduleSource = {
   },
 
   /**
-   * anidb devuelve el calendario POR DÍA:
-   *   /api/frontend/schedule?date=YYYY-MM-DD&tz=<IANA>
-   * Así que se resuelve la fecha concreta de ese día de la semana (dentro de la
-   * ventana de 7 días que muestra la pantalla) y se pide ese día puntual.
+   * hianime no publica calendario de emisión (/schedule → 404). Como
+   * aproximación, HOY se muestran los animes en emisión actualizados más
+   * recientemente; los demás días quedan vacíos.
    */
   async getAnimesForWeekday(dayName) {
     const target = DAY_NAMES.indexOf(String(dayName).toLowerCase());
-    if (target === -1) return [];
+    if (target === -1 || target !== new Date().getDay()) return [];
 
-    const day = this.getAvailableDays().find((d) => d.dayIndex === target);
-    if (!day) return [];
-
-    const schedules = await AnidbService.getSchedule(
-      toLocalDateString(day.date),
-      deviceTimeZone(),
-    );
-
-    return schedules.map((s) => {
-      const idMatch = String(s.anime_url || "").match(/\/anime\/([a-z0-9-]+-\d+)/i);
-      return {
-        id: idMatch ? idMatch[1] : String(s.anime_id),
-        name: s.anime_title,
-        englishName: s.anime_title,
-        thumbnail: s.anime_poster,
-        episodes: 0,
-        description: null,
-        score: null,
-        type: "TV",
-        airingAt: s.airing_at,
-        episodeName: s.episode_name,
-      };
+    const { cards } = await HianimeService.browse({
+      status: "Currently Airing",
+      sort: HIANIME_SORTS.updated,
     });
+    return cards.map((c) => ({
+      ...toCard(c),
+      episodes: c.episodes || 0,
+      airingAt: null,
+      episodeName: null,
+    }));
   },
 };
+
+// ─── AllAnime / mkissa (fuente "mkissa") ────────────────────────────────────
+// Los servicios viejos (AnimeService/CatalogService/…) ya hablan el contrato que
+// esperan las pantallas; solo faltan las piezas que se agregaron después de la
+// migración: el selector de audio y la taxonomía de filtros.
+const AllAnimeAnime = Object.assign(Object.create(AllAnimeService), {
+  // AllAnime no expone qué audios tiene cada episodio sin otra query; se deja
+  // vacío (la UI oculta el selector y usa sub). Sub/dub sigue funcionando si se
+  // pide explícitamente translationType.
+  async getEpisodeAudioOptions() {
+    return [];
+  },
+});
+
+const AllAnimeTaxonomy = {
+  genres: ALLANIME_GENRES,
+  seasons: ALLANIME_SEASONS,
+  years: AllAnimeCatalogService.getAvailableYears(),
+  supportsMultiGenre: true,
+};
+
+// ─── selección de fuente ────────────────────────────────────────────────────
+// appConfig.source: "mkissa" (AllAnime, api.allanime.day + api.mkissa.net)
+//                   "hianime" (la de ani-cli).
+const useAllAnime = SOURCE === "mkissa";
+
+export const SourceTaxonomy = useAllAnime ? AllAnimeTaxonomy : HianimeTaxonomy;
+export const CatalogSource = useAllAnime ? AllAnimeCatalogService : HianimeCatalog;
+export const AnimeSource = useAllAnime ? AllAnimeAnime : HianimeAnime;
+export const DetailsSource = useAllAnime ? AllAnimeDetailsService : HianimeDetails;
+export const ScheduleSource = useAllAnime ? AllAnimeScheduleService : HianimeSchedule;
 
 logger.debug(`🌐 Fuente activa: ${SOURCE}`);
 

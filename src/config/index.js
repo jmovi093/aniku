@@ -4,17 +4,15 @@
 export const appConfig = {
   // 🌐 Fuente de anime
   //
-  // "mkissa" → AllAnime/mkissa (api.allanime.day + api.mkissa.net). Es la
-  //   fuente histórica y la que está en producción. Requiere la cripto del
-  //   esquema bootstrap (ver src/services/AnimeService.js).
-  // "anidb"  → anidb.app, la misma fuente que adoptó ani-cli v5 (PR #1830).
-  //   Su API está detrás de Cloudflare, así que la metadata pasa por un
-  //   WebView oculto (src/utils/cloudflareBridge.js); el video va directo.
+  // "mkissa"  → AllAnime/mkissa (api.allanime.day + api.mkissa.net). Requiere
+  //   la cripto del esquema bootstrap (ver src/services/AnimeService.js);
+  //   si mkissa hace un deploy nuevo hay que actualizar sus constantes AA_*.
+  // "hianime" → hianime, la misma fuente que usa ani-cli (HianimeService.js).
+  //   Sin cripto rotativa; el video exige Referer (lo manda cada link).
+  // (anidb.app murió y AnidbService.js quedó solo como referencia.)
   //
-  // FUENTE ACTIVA: anidb. Los servicios de AllAnime siguen en el repo como
-  // REFERENCIA pero ya nadie los importa — el ruteo vive en
-  // src/services/source/index.js. Ver .claude/ANIDB-SOURCE.md.
-  source: "anidb",
+  // El ruteo vive en src/services/source/index.js.
+  source: "mkissa",
 
   // 🎨 Tema por defecto
   theme: {

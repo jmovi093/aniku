@@ -86,15 +86,15 @@ const EPISODE_API_BASE = 'https://api.mkissa.net';
 // DUPLICADAS de src/services/AnimeService.js a propósito (este script tiene que
 // correr solo, sin el bundle de RN). Si cambian allá, cambiarlas acá también.
 // Regenerar ambas con: node .claude/extract-mkissa-keys.js
-// Última extracción: 2026-08-29, build 148.
-const AA_BUILD_ID = '148';
-const AA_MASK_HEX = '5431adffc5cb1502e4817f2c007b2c3def93b91221aaf808d0b0fea4bf3d30bf';
+// Última extracción: 2026-11-20, build 190.
+const AA_BUILD_ID = '190';
+const AA_MASK_HEX = '65c85a8520d83eafafdff966cc3f5187ab774d238f60338ff4fc0ae7d941ca35';
 const AA_LANE = 'k7';
 const AA_LANE_FIELD = 'k';
 const AA_KEY_GROUP = 'mkissa';
-const AA_BOOT_PREFIX = 'sXKiyl:';
+const AA_BOOT_PREFIX = 'rEVwtVi:';
 const AA_BOOT_JOIN = '~';
-const AA_BOOT_PARTS = ['epoch', 'host', 'buildId', 'lane', 'group'];
+const AA_BOOT_PARTS = ['host', 'lane', 'buildId', 'group', 'epoch'];
 const AA_EPOCH_MS = 604800000;
 const AA_BOOT_HOST = 'mkissa.to';
 // Último esquema hardcodeado conocido (2026-07-20), por si hace falta rollback
@@ -538,7 +538,7 @@ async function testEpisodeInfos(showId, episode) {
 }
 
 async function testProviders(showId, episode) {
-  const HASH = 'c66a5306b7ab6cf4701e766cb352b25b70198e873c4e917f9388da75db5cdca2';
+  const HASH = '670bbf38d0868f446e2346c1e956ca2c40c416e733ca248fd54e04f1c8b99145';
   const mapping = readProviderMapping();
   console.log(`  Providers (${showId} ep ${episode}):`);
 

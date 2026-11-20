@@ -80,16 +80,18 @@ const EPISODE_REFERER = "https://mkissa.to";
 const EPISODE_API_BASE = "https://api.mkissa.net";
 
 // ─── Constantes del build de mkissa (regenerar con extract-mkissa-keys.js) ───
-// Última extracción: 2026-08-29, build 148.
-const AA_BUILD_ID = "148";
+// Última extracción: 2026-11-20, build 190 (obtenida ejecutando el propio
+// bundle de mkissa en Node; ver nota "MASK" más abajo).
+const AA_BUILD_ID = "190";
 const AA_MASK_HEX =
-  "5431adffc5cb1502e4817f2c007b2c3def93b91221aaf808d0b0fea4bf3d30bf";
+  "65c85a8520d83eafafdff966cc3f5187ab774d238f60338ff4fc0ae7d941ca35";
 const AA_LANE = "k7"; // "content lane" de la query de episodio
 const AA_LANE_FIELD = "k"; // nombre del campo en extensions/payload
 const AA_KEY_GROUP = "mkissa";
-const AA_BOOT_PREFIX = "sXKiyl:";
+const AA_BOOT_PREFIX = "rEVwtVi:";
 const AA_BOOT_JOIN = "~";
-const AA_BOOT_PARTS = ["epoch", "host", "buildId", "lane", "group"];
+// build 190: el orden de las partes cambió (antes epoch~host~buildId~lane~group)
+const AA_BOOT_PARTS = ["host", "lane", "buildId", "group", "epoch"];
 const AA_EPOCH_MS = 604800000; // ventana de epoch (1 semana)
 const AA_BOOT_HOST = "mkissa.to";
 // Clave de AsyncStorage donde se PERSISTE el material derivado {epoch, keyHex}.
@@ -819,7 +821,7 @@ class AnimeService {
       // la API responde PersistedQueryNotFound: regenerarlo con
       // node .claude/extract-mkissa-keys.js
       const queryHash =
-        "c66a5306b7ab6cf4701e766cb352b25b70198e873c4e917f9388da75db5cdca2";
+        "670bbf38d0868f446e2346c1e956ca2c40c416e733ca248fd54e04f1c8b99145";
 
       const requestProviders = (keyMaterial) =>
         axios.get(`${EPISODE_API_BASE}/api`, {

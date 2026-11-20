@@ -24,7 +24,7 @@ import CustomAlertComponent from "./src/components/CustomAlert";
 // WebView oculto que permite hablar con orígenes detrás de Cloudflare
 // (fuente anidb). No renderiza nada y NO carga el WebView hasta que algún
 // servicio lo pide — ver src/utils/cloudflareBridge.js.
-import { CloudflareBridge } from "./src/components/CloudflareBridge";
+// import { CloudflareBridge } from "./src/components/CloudflareBridge";
 
 // Servicios
 import DownloadService from "./src/services/DownloadService";
@@ -170,9 +170,10 @@ export default function App() {
       {/* Componente de alertas globales */}
       <CustomAlertComponent />
 
-      {/* Puente para orígenes con Cloudflare (fuente anidb). Invisible; por
-          defecto precalienta al arrancar — ver src/utils/cloudflareBridge.js. */}
-      <CloudflareBridge />
+      {/* Puente de Cloudflare DESACTIVADO: solo lo usaba AnidbService (anidb.app
+          murió y hoy redirige a anilab.so; el puente abría Chrome al arrancar).
+          AllAnime y hianime se piden con fetch normal. Para reactivarlo:
+          descomentar el import y <CloudflareBridge />. */}
     </>
   );
 }

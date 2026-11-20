@@ -191,9 +191,11 @@ const VideoPlayer = ({
       // Antes el "default" mandaba igual `Referer: allmanga.to`, un dominio
       // ajeno al CDN actual. Ahora solo se manda si el link lo pide de forma
       // explícita (caso AllAnime, por si se reconecta esa fuente).
-      ...(currentLink.requiresReferer
-        ? { Referer: "https://allanime.day/" }
-        : {}),
+      ...(currentLink.referer
+        ? { Referer: currentLink.referer }
+        : currentLink.requiresReferer
+          ? { Referer: "https://allanime.day/" }
+          : {}),
     });
     castProxyTokenRef.current = token;
 
@@ -526,9 +528,11 @@ const VideoPlayer = ({
       // Antes el "default" mandaba igual `Referer: allmanga.to`, un dominio
       // ajeno al CDN actual. Ahora solo se manda si el link lo pide de forma
       // explícita (caso AllAnime, por si se reconecta esa fuente).
-      ...(currentLink.requiresReferer
-        ? { Referer: "https://allanime.day/" }
-        : {}),
+      ...(currentLink.referer
+        ? { Referer: currentLink.referer }
+        : currentLink.requiresReferer
+          ? { Referer: "https://allanime.day/" }
+          : {}),
     },
   };
 
